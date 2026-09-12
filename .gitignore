@@ -1,0 +1,17 @@
+# Artefactos de build
+target/
+*.class
+
+# Logs y temporales
+*.log
+*.tmp
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Secretos: NUNCA versionar
+.secrets/
+*apikey*
+*.key
