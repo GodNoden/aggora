@@ -1,0 +1,25 @@
+{
+    "name": "Aggora Dev",
+    "image": "mcr.microsoft.com/devcontainers/java:21-bookworm",
+    "features": {
+      "ghcr.io/devcontainers/features/java:1": {
+        "version": "21",
+        "installMaven": true,
+        "installGradle": true
+      }
+    },
+    // La línea que hace la magia: el devcontainer se une a aggora-net
+    "runArgs": ["--network=aggora-net"],
+  
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "vscjava.vscode-java-pack",
+          "vmware.vscode-spring-boot",
+          "redhat.vscode-quarkus",
+          "ms-azuretools.vscode-docker"
+        ]
+      }
+    },
+    "remoteUser": "vscode"
+  }

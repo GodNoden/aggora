@@ -1,0 +1,45 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: aggora-kafka
+    hostname: kafka
+    ports:
+      # Solo publicamos el listener EXTERNAL hacia WSL/Windows.
+      # El INTERNAL (9092) no se publica: vive solo dentro de aggora-net.
+      - "29092:29092"
+    environment:
+      # --- Identidad del nodo ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk # cualquier base64 de 22 chars
+
+      # --- Listeners ---
+      # Escuchamos en tres puertos:
+      #   9092 -> INTERNAL (para contenedores de aggora-net)
+      #   9093 -> CONTROLLER (uso interno de KRaft, no es para clientes)
+      #   29092 -> EXTERNAL (para procesos fuera de Docker)
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      # Qué dirección le dice Kafka a cada cliente según el listener
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+      # --- Roles internos ---
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+
+      # --- Ajustes para dev (un solo broker, sin réplicas) ---
+      # En producción estos tres cambian; los tocamos en Fase 6.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    networks:
+      - aggora-net
+
+networks:
+  aggora-net:
+    # "external: true" = la red ya existe (la creaste a mano) y NO debe
+    # ser destruida cuando hagas `docker compose down`.
+    external: true
+    name: aggora-net
