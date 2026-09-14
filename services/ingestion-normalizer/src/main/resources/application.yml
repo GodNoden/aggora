@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: ingestion-normalizer
+
+  kafka:
+    # Nombre interno dentro de aggora-net. Nunca localhost (ver README).
+    bootstrap-servers: kafka:9092
+    consumer:
+      # El group.id es lo que reparte particiones entre instancias: dos procesos con
+      # el mismo group.id se reparten las 6 particiones; con otro, cada uno lee todo.
+      group-id: ingestion-normalizer
+      # Sin offset guardado, empieza por el principio del topic.
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      max-poll-records: 200
+      properties:
+        # El productor no manda cabeceras de tipo, así que aquí se declara a qué
+        # clase se convierte el JSON.
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.aggora.normalizer.domain.TickEvent
+        spring.json.trusted.packages: com.aggora.normalizer.domain
+        # Cuánto puede estar el proceso sin llamar a poll() antes de que el broker
+        # lo expulse del grupo (y dispare un rebalanceo).
+        max.poll.interval.ms: 300000
+    listener:
+      # CLAVE de la fase: el offset lo confirma el código, no el framework.
+      ack-mode: manual_immediate
+      concurrency: 1
+      # Si el normalizador arranca antes que el simulador, el topic aún no existe:
+      # avisa y sigue en vez de morir.
+      missing-topics-fatal: false
+      log-container-config: false
+
+aggora:
+  topics:
+    ticks-raw: market.ticks.raw
+  # Retardo artificial por mensaje, en ms. 0 = desactivado.
+  # Ponlo a 300 para poder matar la instancia a media faena y ver, al reiniciar,
+  # que los mensajes no confirmados se vuelven a procesar (at-least-once).
+  processing-delay-ms: 0
