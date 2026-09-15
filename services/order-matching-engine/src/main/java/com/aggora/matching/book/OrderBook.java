@@ -110,6 +110,7 @@ public class OrderBook {
                 .setSymbol(symbol)
                 .setPrice(price)
                 .setQuantity(quantity)
+                .setCurrency(buy.getCurrency())
                 .setBuyOrderId(buy.getOrderId())
                 .setSellOrderId(sell.getOrderId())
                 .setBuyAccountId(buy.getAccountId())

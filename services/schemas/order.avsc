@@ -17,6 +17,12 @@
       "doc": "Precio limite. Solo hay ordenes limitadas: las de mercado quedan fuera del alcance."
     },
     {"name": "quantity", "type": "int"},
+    {
+      "name": "currency",
+      "type": "string",
+      "default": "",
+      "doc": "Divisa del instrumento (USD, EUR, CNY). Se anadio despues, con valor por defecto: eso es un cambio COMPATIBLE hacia atras, porque los mensajes antiguos (que no la traen) se siguen leyendo con el valor por defecto y el Schema Registry lo acepta sin romper a nadie."
+    },
     {"name": "placedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
   ]
 }

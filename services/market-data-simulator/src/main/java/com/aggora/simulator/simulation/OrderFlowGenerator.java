@@ -79,6 +79,7 @@ public class OrderFlowGenerator {
                 .setSide(random.nextBoolean() ? Side.BUY : Side.SELL)
                 .setPrice(price)
                 .setQuantity(quantity)
+                .setCurrency(instrument.currency())
                 .setPlacedAt(now)
                 .build();
 

@@ -12,6 +12,12 @@
       "doc": "Precio al que se cruzan: el de la orden que ya estaba en el libro (la parte pasiva marca el precio)."
     },
     {"name": "quantity", "type": "int"},
+    {
+      "name": "currency",
+      "type": "string",
+      "default": "",
+      "doc": "Divisa del instrumento. Anadida despues con valor por defecto (cambio compatible)."
+    },
     {"name": "buyOrderId", "type": "string"},
     {"name": "sellOrderId", "type": "string"},
     {"name": "buyAccountId", "type": "string"},
