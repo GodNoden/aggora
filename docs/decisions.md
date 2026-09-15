@@ -168,3 +168,16 @@ Dos incidentes que valen más que la teoría:
    Lección para producción: los timeouts del cliente del registry importan tanto
    como los del broker.
 
+## Fase 3 — Kafka Streams: métricas por ventana
+
+| Decisión | Por qué |
+|---|---|
+| **API de Kafka Streams a pelo**, no el binder de Spring Cloud Stream | Se ve la topología que construyes, y es exactamente lo que usa Quarkus en la Fase 8: así la comparación entre frameworks es justa. El binder ahorraría código pero escondería la maquinaria justo mientras se aprende |
+| **ASML en sus dos cotizaciones reales** (`ASML` en NASDAQ y `ASML.AMS` en Euronext) | El spec pide arbitraje de instrumentos con doble cotización y no teníamos ninguno. El sufijo `.AMS` hace que cada cotización sea un instrumento distinto: si compartieran símbolo, sus precios (uno en USD y otro en EUR) se mezclarían en los mismos agregados |
+| **El acumulador es un registro Avro** | Kafka Streams guarda el estado de la ventana en un state store y en un topic de changelog, así que necesita un serde. Se reutiliza Avro en vez de meter JSON solo para esto, y el changelog queda legible con el esquema en el registry |
+| Importes en **double dentro del acumulador**, **decimal en el contrato** | El acumulador es aritmética interna que puede cambiar sin avisar; el contrato de salida sí lleva decimal, que es lo que consumen otros |
+| Ventanas **cortas y configurables** (30 s fijas, 60 s/15 s móviles) | En dev hay que poder ver resultados en segundos. Los tamaños están en `application.yml` |
+| `statestore.cache.max.bytes: 0` (sin cache) | Cada tick emite una métrica actualizada y se ve la ventana llenarse. Con cache habría menos escrituras pero resultados a plazos. ponytail: lo "profesional" es encadenar `.suppress(untilWindowCloses(...))` para emitir una sola vez cuando la ventana cierra |
+| Los tests de la topología usan `TopologyTestDriver` y una URL **`mock://`** del registry | Se prueba la aritmética (VWAP, media, volatilidad, solape de ventanas) sin broker, sin registry y sin esperar ventanas de verdad. 3 tests que fallan si la fórmula se rompe |
+| El topic de salida lo declara el servicio, los internos los crea Kafka Streams | Consistente con la regla del proyecto: cada topic lo declara quien escribe. Los changelog y de repartición los crea Streams por su cuenta con el AdminClient |
+

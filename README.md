@@ -99,6 +99,15 @@
   mensajes binarios en el crudo, 7.000 mensajes procesados con 0 descartes y 0
   errores, y lag 0. El `eventTime` ya viaja como fecha declarada (adiós al número
   opaco de la Fase 1).
+- 🔄 **Fase 3 (en curso)** — Y ya estan las **métricas por ventana**: el modulo
+  `analytics-streams` (Kafka Streams con la API a pelo) lee `market.ticks.canonical` y
+  calcula **VWAP, media y volatilidad** con **dos tipos de ventana** (fija de 30 s y
+  movil de 60 s recalculada cada 15 s) hacia `market.analytics`. Los agregados viven en
+  **state stores** con su topic de changelog, asi que sobreviven a un reinicio.
+  Verificado: 3 tests de la topologia con `TopologyTestDriver` (sin broker), servicio
+  arrancado y metricas reales publicandose.
+  **Pendiente de la fase**: el **spread de arbitraje de ASML** (join entre sus dos
+  cotizaciones, con conversion EUR->USD) y las **consultas interactivas** al state store.
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -179,6 +188,26 @@ sea suyo.
 **Regla para agentes:** compilar y ejecutar SIEMPRE con `docker exec -u vscode`
 (el usuario del devcontainer), nunca como root. Si se compila como root, los
 `target/` quedan sin permiso de escritura para el usuario y el IDE falla.
+
+### Verificar la Fase 3 (analitica)
+```bash
+# Arrancar el tercer servicio (necesita el pipeline de la Fase 1-2 en marcha)
+cd /workspaces/aggora/services/analytics-streams
+java -jar target/analytics-streams-0.1.0-SNAPSHOT.jar
+
+# Lo mas comodo: sus logs muestreados, con las metricas ya calculadas
+#   [metricas] EUR/USD HOPPING ... | ticks=40 volumen=8536 vwap=1.1510 media=1.1512 volatilidad=0.0018
+
+# Los topics internos que crea Kafka Streams para el estado (changelog)
+docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --list | grep analytics
+
+# Cuantos mensajes lleva el topic de metricas
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic market.analytics
+
+curl -s localhost:8081/subjects   # ahora tambien market.analytics-value
+```
 
 ### Verificar la Fase 2 (con el pipeline arrancado)
 ```bash
