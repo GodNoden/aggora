@@ -1,0 +1,13 @@
+# Fuente de datos de Grafana, provisionada: no hay que anadirla a mano en la interfaz.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Nombre interno en aggora-net, como todo lo demas.
+    url: http://prometheus:9090
+    isDefault: true
+    uid: prometheus
+    jsonData:
+      timeInterval: 10s

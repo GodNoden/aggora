@@ -104,6 +104,60 @@ services:
     networks:
       - aggora-net
 
+  # Metricas de Kafka. Prometheus no habla el protocolo de Kafka, hace falta alguien que
+  # traduzca: el exporter publica el lag por grupo y los offsets por topic.
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+    container_name: aggora-kafka-exporter
+    hostname: kafka-exporter
+    depends_on:
+      - kafka
+    command: ["--kafka.server=kafka:9092"]
+    ports:
+      - "9308:9308"
+    restart: unless-stopped
+    networks:
+      - aggora-net
+
+  # Recoge las metricas y las deja consultables.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aggora-prometheus
+    hostname: prometheus
+    depends_on:
+      - kafka-exporter
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - aggora-net
+
+  # Pinta las metricas. El panel y la fuente de datos van PROVISIONADOS: estan en el repo,
+  # asi que no hay que configurar nada a mano ni exportar nada al terminar.
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: aggora-grafana
+    hostname: grafana
+    depends_on:
+      - prometheus
+    environment:
+      # En desarrollo se abre sin login (rol Admin). Las credenciales del README siguen
+      # valiendo para la API.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - aggora-net
+
 networks:
   aggora-net:
     # "external: true" = la red ya existe (la creaste a mano) y NO debe

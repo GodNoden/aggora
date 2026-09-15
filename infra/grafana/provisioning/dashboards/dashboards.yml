@@ -1,0 +1,15 @@
+# De donde saca Grafana los paneles: de una carpeta con ficheros JSON. Se provisionan al
+# arrancar, asi que el panel esta versionado en el repo (y en la Fase 8 se puede comparar).
+apiVersion: 1
+
+providers:
+  - name: aggora
+    orgId: 1
+    folder: Aggora
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
