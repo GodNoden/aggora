@@ -82,6 +82,22 @@ services:
     networks:
       - aggora-net
 
+  # Postgres (Fase 5): lo necesita el patron transactional outbox del audit-log.
+  postgres:
+    image: postgres:16-alpine
+    container_name: aggora-postgres
+    hostname: postgres
+    ports:
+      # Publicado para poder mirarlo desde WSL/Windows con psql.
+      - "5432:5432"
+    environment:
+      # Credenciales de desarrollo, las que fija el README. NO son de produccion.
+      POSTGRES_USER: aggora
+      POSTGRES_PASSWORD: aggora
+      POSTGRES_DB: aggora
+    networks:
+      - aggora-net
+
 networks:
   aggora-net:
     # "external: true" = la red ya existe (la creaste a mano) y NO debe
