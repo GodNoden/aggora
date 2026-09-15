@@ -265,7 +265,19 @@
   la misma cabecera `x-dlt-reason` y el mismo texto. 7 tests del validador en verde.
   Primeros números, mismo servicio y misma máquina:
   arranque **1,123 s (Quarkus)** frente a 2,099 s (Spring) y RSS **332 MB** frente a 428 MB.
-- ⏭️ **Fase 8 (lo que queda)** — los otros 6 servicios (los 3 de Kafka Streams con la extensión
+- ✅ **Fase 8 — segundo servicio portado: `market-data-simulator`** (hecho).
+  `services/quarkus/market-data-simulator` con la **misma configuración YAML** (bloque `aggora:`
+  copiado entero, 14 instrumentos incluidos), clientes REST declarativos para los dos
+  proveedores, el scheduler de Quarkus y métricas en `/q/metrics`. Los **17 tests** del
+  simulador de Spring, portados y en verde. Verificado en vivo: parado el de Spring y
+  arrancado el de Quarkus, el pipeline de Spring siguió sin enterarse (**44 msg/s** de ticks,
+  órdenes cada segundo, `analytics` 200).
+  Números: arranque **1,425 s** frente a 2,847 s y RSS **304 MB** frente a 375 MB.
+  Los hallazgos del port (el scheduler de Quarkus **no baja de un segundo**, la config
+  estricta con las propiedades vacías, `skipExecutionIf`, las claves con puntos en YAML,
+  Jackson 2 vs 3 y el `RecordMetadata` que no existe en un `Emitter`) están en
+  `docs/decisions.md`.
+- ⏭️ **Fase 8 (lo que queda)** — los otros 5 servicios (los 3 de Kafka Streams con la extensión
   de Quarkus), con `group.id` propio y topics de salida propios para poder correr los dos
   stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec pide *at least
   two*) con las medidas de arranque y memoria.
@@ -512,6 +524,31 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-
 # Para volver a la version Spring
 pkill -TERM -f "quarkus-app/quarkus-run.jar"
 bash scripts/start-services.sh
+```
+
+### Verificar la Fase 8 (el port del simulador)
+```bash
+cd /workspaces/aggora/services/quarkus/market-data-simulator
+export ALPHAVANTAGE_API_KEY=$(cat ~/.secrets/alphavantage)
+setsid java -jar target/quarkus-app/quarkus-run.jar > /tmp/market-data-simulator-quarkus.log 2>&1 &
+
+grep -E "started in|\[universo\]|\[reference\]|\[topics\]" /tmp/market-data-simulator-quarkus.log | head
+#   market-data-simulator 0.1.0-SNAPSHOT on JVM (powered by Quarkus 3.39.3) started in 1.425s
+#   [universo] 14 instrumentos configurados
+#   [reference] ALPHA_VANTAGE configurado | 6 instrumentos | presupuesto diario 18
+#   [topics] market.ticks.raw ya existe, no se toca
+
+# El ritmo de ticks (deberia rondar los 40/s con los mercados de EEUU y FX abiertos)
+A=$(docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 \
+     --topic market.ticks.raw | awk -F: '{s+=$3} END {print s}'); sleep 10
+B=$(docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 \
+     --topic market.ticks.raw | awk -F: '{s+=$3} END {print s}'); echo "$(( (B-A)/10 )) msg/s"
+
+curl -s -o /dev/null -w "metrics: %{http_code}\n" localhost:8080/q/metrics
+
+# Para volver a la version Spring
+pkill -TERM -f "quarkus-app/quarkus-run.jar"
+cd /workspaces/aggora && bash scripts/start-services.sh
 ```
 
 ### Verificar la Fase 8 (arranque, memoria y salud)

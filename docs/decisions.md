@@ -425,3 +425,53 @@ Quarkus arranca antes y ocupa menos, que es lo esperable cuando el trabajo de CD
 build en vez de en el arranque. Los 45 hilos y los 89 descriptores son el precio: el motor
 reactivo de Vert.x y SmallRye montan mas piezas moviles que un contenedor de Spring. La
 comparacion completa, con el binario nativo, va en la Fase 9.
+
+### Fase 8: el port de `market-data-simulator` a Quarkus
+
+El segundo servicio, y el que mas piezas tiene: dos proveedores de precios por HTTP, el motor de
+ticks programado, el generador de ordenes y el calendario de mercados. La logica de dominio
+(`Exchange`, `PriceWalk`) se copia tal cual: no depende del framework, y cambiarla habria roto la
+comparacion.
+
+| Decision | Por que |
+|---|---|
+| La configuracion es **el mismo YAML** que el de Spring (bloque `aggora:` copiado entero) | Si al portar tambien se cambian los instrumentos, los precios semilla o los intervalos, la Fase 9 compararia dos cosas a la vez. Se usa `quarkus-config-yaml` solo para eso |
+| Los dos proveedores son **clientes REST declarativos** (`@RegisterRestClient`) | Es la diferencia de filosofia mas grande del port: en Spring el cliente se arma a mano con un `RestClient` imperativo; aqui se describe la llamada en una interfaz y la implementa Quarkus. Menos codigo, menos control del builder |
+| Los dos clientes siguen separando la **traduccion de la respuesta** en un metodo estatico probado | Los dos formatos de `/price` y el `Information` de cuota agotada de Alpha Vantage son los casos que muerden, y asi se prueban sin HTTP. Los 17 tests del simulador de Spring se portaron enteros |
+| `Instance<ReferenceSource>` en vez de `List<ReferenceSource>` | Spring inyecta una lista con todas las implementaciones; en CDI se pide `Instance<T>` y se recorre. Misma idea, otra forma |
+| Metricas (`quarkus-micrometer-registry-prometheus` + `/q/metrics`) | El simulador de Spring tiene servidor web (8080) para exponer `/actuator/prometheus`. Sin metrics, el port tendria menos cosas que el original y la comparacion de memoria seria tramposa |
+
+Y cinco cosas que solo se descubren haciendolo, que es de lo que va esta fase:
+
+| Lo que paso | Lo que hay que hacer |
+|---|---|
+| **El scheduler de Quarkus no baja de un segundo**: `An every() value less than 1000 ms is not supported`, y Spring si admite `fixedRate = 200ms` | Se programa **una vuelta por segundo** y en cada vuelta se emiten `1000 / tick-interval-ms` ticks (5 con el valor del proyecto). El ritmo es el mismo (medido: 44 msg/s, como Spring) pero llega en rafagas de 5 en vez de uniforme, y eso cambia un poco lo que ven las ventanas de la analitica. Queda dicho |
+| La primera ejecucion del job fallaba con `SRMSG00019: Unable to connect an emitter with the channel ticks-raw` | El job disparaba antes de que los canales estuvieran conectados: `skipExecutionIf = Scheduled.ApplicationNotRunning.class`. En Spring no pasa porque el scheduler arranca con el contexto ya listo |
+| Un `String` obligatorio con **valor vacio** no arranca: `defined as the empty String which the Converter considered to be null` | La api key (que viene de `${TWELVEDATA_API_KEY:}`) es `Optional<String>` y se comprueba con `filter(...).isPresent()`. En Spring esa misma variable deja una cadena vacia y basta un `isBlank()` |
+| `feed-exchange` falta en los instrumentos de Alpha Vantage y Quarkus exige el valor | `Optional<String>` y `orElse("")`. Y ojo: `@WithDefault("")` **no** vale, porque mete una cadena vacia que el conversor tambien rechaza |
+| Los intervalos que solo usan las anotaciones `@Scheduled` no son miembros del `@ConfigMapping`, y Quarkus **falla la validacion** de propiedades desconocidas del prefijo | `quarkus.config.mapping.validate-unknown=false`, que es justo lo que hace la version Spring dejandolos fuera del record. Salvo `tick-interval-ms`, que el port si lee en codigo y por eso si esta en el mapping |
+| Las claves con puntos puestas en **YAML** salen del parser entre comillas y Quarkus no las reconoce (`Unrecognized configuration key ""quarkus.rest-client...""`) | Las propiedades planas van a `application.properties`; el YAML se queda para la parte estructurada (la lista de instrumentos) |
+| El parser del port es **Jackson 2** (`com.fasterxml.jackson`) porque es el que trae Quarkus; el de Spring es **Jackson 3** (`tools.jackson`) | La logica de traduccion es identica, los nombres cambian (`asText()` vs `asString()`, `fields()` vs `properties()`). Es la misma friccion de la migracion a Boot 4, en la direccion contraria |
+| El callback del `Emitter` de SmallRye solo tiene un `CompletionStage<Void>`: **no hay `RecordMetadata`** | El log de cada 1000 ticks cuenta cuantos van y cuantos fallan, pero ya no puede decir en que particion y offset cayeron, cosa que el `KafkaTemplate` de Spring si da en su callback |
+
+**Verificado en vivo:** se paro el simulador de Spring y arranco el de Quarkus con los mismos
+topics y la misma configuracion, y el pipeline de Spring (normalizer, analitica, matching) siguio
+funcionando sin enterarse: **44 msg/s** de ticks, ordenes cada segundo, `analytics` respondiendo
+200 y `/q/metrics` publicando. Los 17 tests, en verde.
+
+Los numeros, para el mismo servicio y la misma maquina:
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (contexto) | 2,474 s | — |
+| Arranque (proceso hasta listo) | 2,847 s | **1,425 s** |
+| RSS en reposo | 375 MB | **304 MB** |
+| Hilos | 53 | 64 |
+| Descriptores abiertos | 20 | 81 |
+
+Un aviso honesto sobre la verificacion: a la hora de probarlo, Euronext y Shanghai estaban
+cerrados y Twelve Data se quedo sin key, asi que **el camino HTTP real no se pudo ejercitar** (en
+las dos implementaciones, que se comportan igual: `open.isEmpty()` y no se pide nada). Lo que si
+se comprobo contra la API de verdad es el caso de cuota agotada: Alpha Vantage responde 200 con
+`Information` en vez de dar un error HTTP, que es exactamente el caso que cubre
+`AlphaVantageClientTest.cuota_agotada_no_es_un_precio`.
