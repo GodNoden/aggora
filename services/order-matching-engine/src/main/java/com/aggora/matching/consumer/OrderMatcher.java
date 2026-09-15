@@ -59,11 +59,16 @@ public class OrderMatcher {
                     order.getPrice(), matches.size(), books.restingOrders(), executed.get());
         }
 
-        // Experimento de exactly-once (ver README): se lanza DESPUES de publicar, para
-        // que se vea que la transaccion deshace lo publicado y no avanza el offset.
-        if (props.failEveryNOrders() > 0 && count % props.failEveryNOrders() == 0) {
+        // Gancho para el ejercicio de dead-letter topics. Ojo con el detalle, que costo un
+        // rato entenderlo: el fallo NO puede depender de un contador. Si se inyecta "cada
+        // 20 ordenes", al reintentar el contador avanza, el fallo desaparece y el mensaje
+        // se procesa bien: nunca llega al DLT. Un DLT sirve para mensajes VENENOSOS, es
+        // decir, fallos que pertenecen al mensaje y no al momento. Por eso aqui se decide
+        // por el propio orderId: o esa orden es venenosa siempre, o no lo es nunca.
+        if (props.failEveryNOrders() > 0
+                && Math.abs(order.getOrderId().hashCode()) % props.failEveryNOrders() == 0) {
             injectedFailures.incrementAndGet();
-            throw new IllegalStateException("fallo inyectado tras publicar: la transaccion se deshace");
+            throw new IllegalStateException("orden venenosa inyectada: esta orden no se puede procesar");
         }
     }
 

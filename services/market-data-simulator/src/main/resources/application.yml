@@ -43,6 +43,10 @@ aggora:
 
   # Ordenes simuladas: una cada segundo, empezando a los 15 s (para que el simulador
   # tenga ya precios de referencia con los que poner precios limite).
+  # Ejercicio de dead-letter topics: cada N ticks se emite uno invalido a proposito.
+  # 0 = desactivado.
+  invalid-tick-every-n: 0
+
   order-interval-ms: 1000
   order-initial-delay-ms: 15000
 

@@ -33,6 +33,19 @@ public class KafkaTopicsConfig {
      * se queda con una entrada por clave y va tirando las viejas. Una sola particion:
      * son 2 pares, no hace falta repartir.
      */
+    /**
+     * Topic de descartes del crudo: aqui va lo que no se puede procesar, junto con el
+     * motivo en una cabecera. Una sola particion, como fija el spec: es un sitio para
+     * mirar y arreglar, no para dar throughput.
+     */
+    @Bean
+    public NewTopic rawTicksDlt(AggoraProperties props) {
+        return TopicBuilder.name(props.topics().ticksRawDlt())
+                .partitions(1)
+                .replicas(1)
+                .build();
+    }
+
     @Bean
     public NewTopic fxReference(AggoraProperties props) {
         return TopicBuilder.name(props.topics().fxReference())

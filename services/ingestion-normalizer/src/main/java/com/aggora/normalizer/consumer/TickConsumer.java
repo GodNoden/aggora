@@ -8,7 +8,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.aggora.avro.Tick;
 import com.aggora.normalizer.config.AggoraProperties;
 
+import java.nio.charset.StandardCharsets;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -33,19 +36,25 @@ public class TickConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(TickConsumer.class);
 
+    /** Cabecera donde viaja el motivo del descarte, para poder investigarlo despues. */
+    private static final String DLT_REASON_HEADER = "x-dlt-reason";
+
     private final AggoraProperties props;
     private final KafkaTemplate<String, com.aggora.avro.canonical.CanonicalTick> canonicalTemplate;
     private final KafkaTemplate<String, com.aggora.avro.reference.FxRate> fxTemplate;
+    private final KafkaTemplate<String, Tick> deadLetterTemplate;
     private final AtomicLong received = new AtomicLong();
     private final AtomicLong discarded = new AtomicLong();
     private final AtomicLong published = new AtomicLong();
 
     public TickConsumer(AggoraProperties props,
                         KafkaTemplate<String, com.aggora.avro.canonical.CanonicalTick> canonicalTemplate,
-                        KafkaTemplate<String, com.aggora.avro.reference.FxRate> fxTemplate) {
+                        KafkaTemplate<String, com.aggora.avro.reference.FxRate> fxTemplate,
+                        KafkaTemplate<String, Tick> deadLetterTemplate) {
         this.props = props;
         this.canonicalTemplate = canonicalTemplate;
         this.fxTemplate = fxTemplate;
+        this.deadLetterTemplate = deadLetterTemplate;
     }
 
     /**
@@ -60,9 +69,7 @@ public class TickConsumer {
         String problem = validate(record);
 
         if (problem != null) {
-            discarded.incrementAndGet();
-            log.warn("[descarta] part={} offset={} key={} motivo={}",
-                    record.partition(), record.offset(), record.key(), problem);
+            sendToDeadLetter(record, problem);
         } else {
             com.aggora.avro.canonical.CanonicalTick canonical = toCanonical(record);
             publish(canonical);
@@ -114,6 +121,32 @@ public class TickConsumer {
                     }
                     published.incrementAndGet();
                 });
+    }
+
+    /**
+     * Un mensaje que no se puede procesar NO se descarta en silencio: se publica al topic
+     * de descartes CON EL MOTIVO en una cabecera. Asi se puede mirar que llego mal y por
+     * que, y el consumidor sigue avanzando en vez de atascarse.
+     *
+     * Se confirma el offset igualmente: el mensaje ya esta a salvo en el DLT.
+     */
+    private void sendToDeadLetter(ConsumerRecord<String, Tick> record, String reason) {
+        // Se copian las cabeceras originales y se anade el motivo: dentro de tres semanas,
+        // quien mire el DLT agradecera saber POR QUE se descarto cada mensaje.
+        ProducerRecord<String, Tick> dead = new ProducerRecord<>(
+                props.topics().ticksRawDlt(), null, record.key(), record.value());
+        record.headers().forEach(dead.headers()::add);
+        dead.headers().add(DLT_REASON_HEADER, reason.getBytes(StandardCharsets.UTF_8));
+
+        deadLetterTemplate.send(dead)
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        log.error("[DLT] no se pudo enviar {} al DLT: {}", record.key(), ex.getMessage());
+                    }
+                });
+        discarded.incrementAndGet();
+        log.warn("[DLT] part={} offset={} key={} -> {} | motivo: {}",
+                record.partition(), record.offset(), record.key(), props.topics().ticksRawDlt(), reason);
     }
 
     /**

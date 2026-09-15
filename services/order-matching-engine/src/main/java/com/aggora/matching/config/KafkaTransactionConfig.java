@@ -1,14 +1,14 @@
 package com.aggora.matching.config;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.TopicPartition;
 import org.springframework.boot.kafka.autoconfigure.ConcurrentKafkaListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
-import org.springframework.kafka.listener.CommonErrorHandler;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 import org.springframework.kafka.transaction.KafkaTransactionManager;
@@ -50,34 +50,37 @@ public class KafkaTransactionConfig {
     public ConcurrentKafkaListenerContainerFactory<Object, Object> kafkaListenerContainerFactory(
             ConsumerFactory<Object, Object> consumerFactory,
             ConcurrentKafkaListenerContainerFactoryConfigurer configurer,
-            KafkaTransactionManager<Object, Object> transactionManager) {
+            KafkaTransactionManager<Object, Object> transactionManager,
+            KafkaTemplate<String, Object> kafkaTemplate) {
 
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         configurer.configure(factory, consumerFactory);
         factory.getContainerProperties().setKafkaAwareTransactionManager(transactionManager);
-        factory.setCommonErrorHandler(abortInsteadOfSkipping());
+        factory.setCommonErrorHandler(errorHandler(kafkaTemplate));
         return factory;
     }
 
     /**
-     * Ojo con esto, que es una trampa clasica: el manejador de errores por defecto de
-     * Spring Kafka reintenta unas cuantas veces y, si sigue fallando, DESCARTA el
-     * mensaje (confirma el offset y sigue). Con transacciones, eso significa perder la
-     * orden en silencio.
+     * Que hacer cuando una orden no se puede procesar.
      *
-     * Aqui se configura lo contrario: sin reintentos y relanzando la excepcion, para que
-     * el contenedor deshaga la transaccion y el mensaje siga pendiente (se reprocesara).
-     * En produccion, el destino de un mensaje que no se puede procesar es un topic de
-     * descartes con su aviso (Fase 6), no el olvido.
+     * En la Fase 4 se decidio lo minimo: deshacer la transaccion y dejar el mensaje
+     * pendiente, para no descartarlo en silencio. El problema de aquello, que se ve al
+     * pensarlo dos veces, es que un mensaje imposible bloquea SU PARTICION para siempre:
+     * el consumidor se queda reintentando lo mismo y todo lo que venga detras espera.
+     *
+     * Ahora: dos reintentos cortos y, si sigue fallando, al topic de descartes CON el
+     * motivo. La particion sigue avanzando y el mensaje problematico queda a la vista.
+     *
+     * El publicador del DLT usa la MISMA plantilla transaccional, que es lo que pide
+     * Spring Kafka cuando el contenedor es transaccional: asi la publicacion al DLT y el
+     * commit del offset van juntos y no se puede dar el caso de "descartado pero no
+     * confirmado" (ni al reves).
      */
     @Bean
-    public CommonErrorHandler abortInsteadOfSkipping() {
-        return new DefaultErrorHandler(
-                (record, exception) -> {
-                    throw new KafkaException(
-                            "no se puede procesar " + record.key() + ": se deshace la transaccion", exception);
-                },
-                new FixedBackOff(0L, 0L));
+    public DefaultErrorHandler errorHandler(KafkaTemplate<String, Object> template) {
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
+                (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
+        return new DefaultErrorHandler(recoverer, new FixedBackOff(200L, 2L));
     }
 }

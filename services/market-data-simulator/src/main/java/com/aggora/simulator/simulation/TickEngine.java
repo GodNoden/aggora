@@ -41,6 +41,7 @@ public class TickEngine {
     private final Map<String, PriceWalk> walks = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> references = new ConcurrentHashMap<>();
     private final Map<String, AtomicLong> sequences = new ConcurrentHashMap<>();
+    private final AtomicLong ticksSent = new AtomicLong();
 
     public TickEngine(AggoraProperties props, TickProducer producer) {
         this.props = props;
@@ -70,6 +71,12 @@ public class TickEngine {
             double reference = references.get(instrument.symbol()).doubleValue();
             PriceWalk walk = walkOf(instrument.symbol(), reference);
             double price = walk.next(reference);
+            // Gancho SOLO para el ejercicio de dead-letter topics: cada N ticks se emite
+            // uno con el precio en negativo, que el normalizer rechazara por invalido.
+            if (props.invalidTickEveryN() > 0 && ticksSent.incrementAndGet() % props.invalidTickEveryN() == 0) {
+                log.warn("[invalido] emitido a proposito un tick con precio negativo ({})", instrument.symbol());
+                price = -Math.abs(price);
+            }
             producer.send(toTick(instrument, price, TickSource.SYNTHETIC, now));
         }
     }

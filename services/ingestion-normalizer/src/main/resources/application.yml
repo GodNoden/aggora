@@ -50,6 +50,8 @@ aggora:
     ticks-canonical: market.ticks.canonical
     # Compactado: tipos de cambio de referencia (el ultimo valor de cada par).
     fx-reference: market.fx.reference
+    # Descartes: lo que no se puede procesar, con el motivo en una cabecera.
+    ticks-raw-dlt: market.ticks.raw.DLT
   # Retardo artificial por mensaje, en ms. 0 = desactivado.
   # Ponlo a 300 para poder matar la instancia a media faena y ver, al reiniciar,
   # que los mensajes no confirmados se vuelven a procesar (at-least-once).

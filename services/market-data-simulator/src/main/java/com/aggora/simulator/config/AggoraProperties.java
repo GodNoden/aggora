@@ -17,6 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "aggora")
 public record AggoraProperties(
         Topics topics,
+        int invalidTickEveryN,
         Simulation simulation,
         TwelveData twelveData,
         AlphaVantage alphaVantage,
