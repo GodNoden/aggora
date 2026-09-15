@@ -32,6 +32,7 @@
     <module>ingestion-normalizer</module>
     <module>analytics-streams</module>
     <module>order-matching-engine</module>
+    <module>portfolio-risk</module>
   </modules>
 
   <properties>

@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: portfolio-risk
+
+  kafka:
+    bootstrap-servers: kafka:9092
+    streams:
+      application-id: portfolio-risk
+      client-id: portfolio-risk
+      state-dir: /tmp/aggora-portfolio-state
+      properties:
+        default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        default.value.serde: io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde
+        schema.registry.url: http://schema-registry:8081
+        statestore.cache.max.bytes: 0
+        commit.interval.ms: 1000
+        num.stream.threads: 1
+        auto.offset.reset: earliest
+        # CLAVE: el motor de matching publica las ejecuciones en transacciones. Si aqui
+        # se leyera con read_uncommitted, entrarian tambien las ejecuciones ABORTADAS y
+        # las posiciones contarian operaciones que en realidad no ocurrieron.
+        isolation.level: read_committed
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    executions: orders.executions
+    portfolio-updates: portfolio.updates
+  # Limite de exposicion por posicion: si se supera, se marca marginBreach y
+  # alerting-service levanta la alerta. En un sistema real seria por cuenta y por
+  # instrumento, con reglas de margen de verdad.
+  margin-limit: 500000
