@@ -106,12 +106,12 @@ public class AlphaVantageClient implements ReferenceSource {
         }
         for (String aviso : List.of("Information", "Note", "Error Message")) {
             if (body.hasNonNull(aviso)) {
-                log.warn("[alpha-vantage] {}: {}", feedSymbol, body.get(aviso).asText());
+                log.warn("[alpha-vantage] {}: {}", feedSymbol, body.get(aviso).asString());
                 return Optional.empty();
             }
         }
         JsonNode price = body.path("Global Quote").path(QUOTE_PRICE_FIELD);
-        if (price.isMissingNode() || price.asText().isBlank()) {
+        if (price.isMissingNode() || price.asString().isBlank()) {
             log.warn("[alpha-vantage] {} sin precio en la respuesta", feedSymbol);
             return Optional.empty();
         }

@@ -100,8 +100,8 @@ public class TwelveDataClient implements ReferenceSource {
             return prices;
         }
         // Error global: {"code":401,"message":"...","status":"error"}
-        if (body.hasNonNull("status") && "error".equals(body.get("status").asText())) {
-            log.warn("[twelve-data] error {}: {}", body.path("code").asText(), body.path("message").asText());
+        if (body.hasNonNull("status") && "error".equals(body.get("status").asString())) {
+            log.warn("[twelve-data] error {}: {}", body.path("code").asString(), body.path("message").asString());
             return prices;
         }
 
@@ -128,7 +128,7 @@ public class TwelveDataClient implements ReferenceSource {
                         node.get("price").asDouble());
             } else {
                 log.warn("[twelve-data] {} sin precio: {} {}",
-                        entry.getKey(), node.path("code").asText(), node.path("message").asText());
+                        entry.getKey(), node.path("code").asString(), node.path("message").asString());
             }
         }
         return prices;
