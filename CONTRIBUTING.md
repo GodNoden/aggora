@@ -304,11 +304,22 @@
   posiciones, o sea el exactly-once de la Fase 4 cruzando las dos implementaciones. Números:
   arranque **1,066 s** frente a 2,023 s y RSS **306 MB** frente a 374 MB (la mayor diferencia de
   arranque de todo el port, −47%).
-- ⏭️ **Fase 8 (lo que queda)** — los otros 3 servicios: `order-matching-engine` (el exactly-once del
-  lado del productor, que en SmallRye se hace con `transactional=true`), `alerting-service` (Streams
-  con punctuator) y `audit-log` (outbox con Postgres). Después, `group.id` y topics de salida
-  propios para correr los dos stacks a la vez y la imagen nativa de GraalVM para dos servicios (el
-  spec pide *at least two*) con las medidas de arranque y memoria.
+- ✅ **Fase 8 — quinto servicio portado: `order-matching-engine`** (hecho). El del **exactly-once**, y
+  donde el montaje deja de parecerse: Spring cuelga un `KafkaTransactionManager` del contenedor
+  (configuración), SmallRye lo pide en el código con
+  `@Channel("executions") KafkaTransactions<Execution>` y `withTransactionAndAck`. El libro de
+  órdenes se copió tal cual. **El experimento de la Fase 4 repetido en Quarkus**: el mismo topic
+  leído con los dos niveles de aislamiento dio **read_committed 83.572** frente a **read_uncommitted
+  83.582** (diez ejecuciones abortadas que existen y no se ven), y la orden venenosa llegó a
+  `orders.incoming.DLT` con la cabecera `x-dlt-reason`. Números: arranque **1,290 s** frente a
+  1,987 s y RSS **253 MB** frente a 268 MB. Dos gotchas apuntados: el nombre de la variable de
+  entorno (**Spring admite `AGGORA_FAILEVERYNORDERS`, Quarkus exige `AGGORA_FAIL_EVERY_N_ORDERS`**)
+  y el validador de Avro 1.12.2, que vuelve a aparecer porque este módulo también construye
+  registros Avro en sus tests.
+- ⏭️ **Fase 8 (lo que queda)** — los otros 2 servicios: `alerting-service` (Streams con punctuator)
+  y `audit-log` (outbox con Postgres). Después, `group.id` y topics de salida propios para correr
+  los dos stacks a la vez y la imagen nativa de GraalVM para dos servicios (el spec pide *at least
+  two*) con las medidas de arranque y memoria.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash

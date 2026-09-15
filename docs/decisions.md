@@ -554,3 +554,43 @@ Los números, mismo servicio y misma máquina:
 
 Es el servicio donde la diferencia de arranque es mayor (−47%), y tiene sentido: no hay contexto de
 Spring ni servidor web de por medio, solo el motor de Streams.
+
+### Fase 8: el port de `order-matching-engine` a Quarkus (exactly-once)
+
+El servicio del exactly-once, y donde el montaje deja de parecerse entre los dos frameworks.
+
+| | Spring Boot | Quarkus (SmallRye) |
+|---|---|---|
+| **Dónde se pide la transacción** | En un bean: `KafkaTransactionManager` colgado del contenedor de escucha (`KafkaTransactionConfig`), y el listener no se entera | **En el código**: se inyecta `@Channel("executions") KafkaTransactions<Execution>` y se envuelve el procesamiento en `withTransactionAndAck(record, emitter -> ...)` |
+| **Los offsets del consumidor** | Se confirman dentro de la transacción (`sendOffsetsToTransaction`), lo hace el contenedor | También: es justo lo que añade el `AndAck` de `withTransactionAndAck` |
+| **El DLT** | `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` (2 reintentos de 200 ms y, si sigue fallando, al topic) | Publicación explícita al topic de descartes desde el propio manejador, con `markForAbort()` en la transacción |
+| **El libro de órdenes** | Copiado tal cual (`OrderBook`, `OrderBooks`, 156 líneas con prioridad precio-tiempo) | Igual |
+
+| Decision | Por que |
+|---|---|
+| El veneno se decide **por el `orderId`**, no por un contador | Igual que en la Fase 4: con un contador, al reintentar el contador avanza, el fallo desaparece y el mensaje nunca llega al DLT. Un DLT es para mensajes venenosos, no para fallos del momento |
+| La orden venenosa se detecta **después de publicar** las ejecuciones y se aborta con `markForAbort()` | Es lo que hace demostrable el exactly-once: las ejecuciones quedan escritas en el topic y **abortadas**, así que solo las ve quien lee con `read_uncommitted`. Detectar antes de publicar no dejaría rastro que enseñar |
+| El motivo del descarte va en la cabecera `x-dlt-reason` | Los dos servicios de Aggora que tienen DLT usan ya esa cabecera; el `DeadLetterPublishingRecoverer` de Spring añade las suyas (`kafka_dlt-exception-*`), así que la etiqueta común es esta |
+
+**Verificado en vivo, con el experimento de la Fase 4 repetido en Quarkus:** con el veneno inyectado
+por `orderId`, el mismo topic `orders.executions` leído dos veces dio **read_committed 83.572** y
+**read_uncommitted 83.582**: diez ejecuciones abortadas que existen en el log y que nadie que lea
+con `read_committed` va a ver. Y la orden venenosa llegó a `orders.incoming.DLT` con
+`x-dlt-reason: orden venenosa inyectada: esta orden no se puede procesar` (el mismo texto que
+inyecta la versión Spring), con la partición avanzando en vez de atascarse.
+
+**Dos cosas que costaron un rato y quedan apuntadas:**
+
+| Lo que pasó | Lo que hay detrás |
+|---|---|
+| `AGGORA_FAILEVERYNORDERS=10` no hacía nada | Ese nombre es el que acepta **Spring** (relaxed binding: `AGGORA_FAILEVERYNORDERS` → `aggora.failEveryNOrders`). Quarkus mapea el entorno de forma **exacta**: `AGGORA_FAIL_EVERY_N_ORDERS`. Para experimentar es más cómodo `-Daggora.fail-every-n-orders=10` |
+| Los 4 tests del libro fallaron con `Forbidden com.aggora.avro.orders.Side` | El mismo validador de Avro 1.12.2 de la analítica. Confirma que el hallazgo no era de Streams sino de **cualquier módulo cuyos tests construyan registros Avro**: mismo arreglo en el surefire |
+
+Los números, mismo servicio y misma máquina:
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (proceso hasta listo) | 1,987 s | **1,290 s** |
+| RSS en reposo | 268 MB | 253 MB |
+| Hilos | 39 | 44 |
+| Descriptores abiertos | 24 | 82 |
