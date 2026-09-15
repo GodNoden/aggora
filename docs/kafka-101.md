@@ -651,3 +651,63 @@ ver la JVM, las tareas de Kafka Streams o los reintentos haria falta anadir `act
 falta de la observabilidad (y la que hara falta en la Fase 8 para comparar Spring con
 Quarkus con numeros).
 
+---
+
+## 16. La Fase 6 (final): tres brokers, y qué pasa cuando se caen
+
+Hasta aquí el broker era **uno**, y con `replicas: 1` no había nada que conmutar: si se caía,
+el sistema entero se paraba. Esta fase monta el **clúster de verdad**: tres nodos (los tres a
+la vez broker y controller, con quórum entre ellos), **3 copias de cada partición** y
+`min.insync.replicas: 2`.
+
+**Las tres piezas que hay que entender:**
+
+- **Réplicas (`replication.factor: 3`)**: cada partición está copiada en tres brokers. Si uno
+  se muere, la copia sigue existiendo en los otros dos.
+- **ISR (in-sync replicas)**: las copias que están **al día**. Kafka solo elige líder entre
+  ellas, y si una se retrasa demasiado la saca de la lista.
+- **`min.insync.replicas`**: cuántas copias al día hacen falta para dar una escritura por
+  buena. Con `acks=all` y `min.insync.replicas=2`, un mensaje se confirma cuando **dos**
+  brokers lo tienen. Es la pieza que convierte "tengo copias" en "no pierdo datos".
+
+**Los experimentos, con los números reales que salieron:**
+
+**1. Se cae un broker: no pasa nada.**
+```
+Isr: 3,1,2   ->   Isr: 3,1        (una copia fuera, el resto sigue)
+Partition: 2  Leader: 2  ->  Leader: 3   (el líder se elige solo)
+offsets: 639 -> 705 en 12 s       (se sigue escribiendo)
+```
+El liderazgo se reparte entre los brokers que quedan y el sistema ni se entera. Esto es lo
+que compra tener réplicas.
+
+**2. Se caen dos brokers: se deja de escribir, a propósito.**
+```
+Isr: 1                            (solo queda una copia al día)
+offsets: 751 -> 751 en 15 s       (CONGELADOS)
+productor: "Got error produce response ... NOT_ENOUGH_REPLICAS"
+```
+Con una sola copia al día, `acks=all` **no puede** confirmar sin arriesgarse a perder el
+mensaje si ese broker se cae. Así que el productor se niega y reintenta. **Esto no es un
+fallo: es la garantía funcionando.** Mejor parar de escribir que aceptar un mensaje que solo
+tiene un sitio.
+
+**3. Vuelven los brokers: todo se recupera, y sin perder nada.**
+```
+Isr: 1  ->  Isr: 1,3,2            (las copias se ponen al día)
+offsets: 751 -> 1310              (un salto de 559 mensajes)
+```
+Ese salto son los mensajes que el productor tenía **en el buffer** durante el apagón: los
+guardó, siguió reintentando y los entregó cuando el ISR se recuperó (dentro de su
+`delivery.timeout.ms`). Ningún tick perdido.
+
+**Y el detalle que se aprende de paso**: con 3 brokers y el quórum de controllers repartido,
+matar dos **también** deja al clúster sin poder elegir líderes (una mayoría son 2 de 3). Un
+clúster de 3 sobrevive a 1 caída, no a 2. Si quieres sobrevivir a 2, hacen falta 5.
+
+**Cómo se reflejó en el código**: los topics se declaran **sin réplicas explícitas**, para
+que mande el default del broker (`KAFKA_DEFAULT_REPLICATION_FACTOR=3`). Así el mismo código
+vale para un broker suelto o para un clúster de tres, sin tocar nada. Y los topics internos
+de Kafka Streams (changelog y repartición) llevan `replication.factor: 3` en su
+configuración, porque el estado de las ventanas también tiene que sobrevivir a una caída.
+

@@ -27,13 +27,14 @@
 
 ## Convenciones de red
 - Dentro de `aggora-net`, los servicios se hablan POR NOMBRE y puerto interno:
-  - `kafka:9092` (listener INTERNAL)
+  - `kafka-1:9092,kafka-2:9092,kafka-3:9092` (listener INTERNAL de los 3 brokers;
+    se listan los tres para que si uno está caído el cliente se entere por los otros)
   - `schema-registry:8081`
   - `postgres:5432`
   - `prometheus:9090`
 - Desde WSL/Windows (fuera de Docker), los servicios se acceden por `localhost`
   y el puerto publicado:
-  - `localhost:29092` (listener EXTERNAL de Kafka)
+  - `localhost:29092`, `29093`, `29094` (listener EXTERNAL de cada broker)
   - `localhost:8081` (Schema Registry)
   - `localhost:5432` (Postgres)
   - `localhost:8090` (Redpanda Console, pendiente)
@@ -155,9 +156,15 @@
   - **Reinicio del broker** documentado: con `replicas: 1` no hay failover, pero los
     clientes hacen buffer y reintentan, asi que el pipeline se recupera solo (los offsets
     siguieron avanzando durante el reinicio).
-  - **Pendiente de la fase**: cluster de **3 brokers** con `replicas: 3` y
-    `min.insync.replicas: 2` (matar un broker y ver que el sistema aguanta), y el panel de
-    **Grafana** con kafka-exporter para ver el lag.
+  - **Clúster de 3 brokers** (hecho): 3 nodos en KRaft con quórum, **3 réplicas** por
+    partición y `min.insync.replicas: 2`. Experimentos verificados:
+    con **1 broker caído** el líder se elige solo y se sigue escribiendo (offsets 639→705);
+    con **2 caídos** los offsets se **congelan** (751→751) y el productor da
+    `NOT_ENOUGH_REPLICAS`: es la garantía, mejor parar que arriesgar datos; y al volver los
+    brokers se recupera **sin perder nada** (el offset salta a 1310 con los mensajes que el
+    productor tenía en el buffer).
+    Los topics se declaran **sin réplicas explícitas** (manda el default del broker) y los
+    topics internos de Streams llevan `replication.factor: 3`.
 - 🧱 **Operación (aprendido a golpes)** — Se reinició el entorno (Docker Desktop/WSL) y se
   cayeron los 7 servicios y los 3 contenedores. Al volver, **no se perdió nada**: 29 topics,
   22 esquemas y 131.932 eventos auditados seguían ahí, porque el estado vive en Kafka y
@@ -210,14 +217,14 @@ curl -s 'localhost:8085/analytics?symbol=EUR/USD&minutes=3' | head -c 300
 ```
 Comprobaciones (desde WSL/Windows, que es donde tienes la CLI de Kafka):
 ```bash
-docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 --describe --topic market.ticks.raw
 
-docker exec aggora-kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-consumer-groups.sh \
   --bootstrap-server localhost:9092 --describe --group ingestion-normalizer
 
 # Ver mensajes en crudo, con su key
-docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.raw \
   --max-messages 3 --property print.key=true
 ```
@@ -259,9 +266,9 @@ sea suyo.
 curl -s "localhost:8085/analytics?symbol=EUR/USD&minutes=3"
 
 # Los topics nuevos de la fase
-docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 --describe --topic market.fx.reference   # compactado
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.arbitrage
 ```
 # Arrancar el tercer servicio (necesita el pipeline de la Fase 1-2 en marcha)
@@ -272,37 +279,60 @@ java -jar target/analytics-streams-0.1.0-SNAPSHOT.jar
 #   [metricas] EUR/USD HOPPING ... | ticks=40 volumen=8536 vwap=1.1510 media=1.1512 volatilidad=0.0018
 
 # Los topics internos que crea Kafka Streams para el estado (changelog)
-docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 --list | grep analytics
 
 # Cuantos mensajes lleva el topic de metricas
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.analytics
 
 curl -s localhost:8081/subjects   # ahora tambien market.analytics-value
 ```
 
+### Verificar la Fase 6 (clúster de 3 brokers)
+```bash
+# El quórum de KRaft: 3 votantes y quién manda
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-metadata-quorum.sh \
+  --bootstrap-server localhost:9092 describe --status | head -6
+
+# Un topic: 3 réplicas y quién está al día (ISR)
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --describe --topic market.ticks.raw | head -3
+
+# EXPERIMENTO: matar un broker y ver que el ISR baja a 2 y el líder se mueve
+docker stop aggora-kafka-2
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --describe --topic market.ticks.raw | head -3
+docker start aggora-kafka-2
+
+# EXPERIMENTO: matar dos y ver que la escritura se para (offsets congelados)
+docker stop aggora-kafka-2 aggora-kafka-3
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic market.ticks.raw
+docker start aggora-kafka-2 aggora-kafka-3
+```
+
 ### Verificar la Fase 6 (descartes y reintentos)
 ```bash
 # Los topics de reintento y descarte que se crean solos
-docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list \
   | grep -E "retry|DLT"
 
 # Ticks invalidos descartados con su motivo (arrancar el simulador con
 # AGGORA_INVALIDTICKEVERYN=500)
 docker exec -u vscode eager_allen bash -lc 'grep "DLT\]" /tmp/norm3.log | tail -3'
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.raw.DLT
 
 # Ordenes venenosas al DLT (arrancar el motor con AGGORA_FAILEVERYNORDERS=20), y comprobar
 # que el motor SIGUE procesando ordenes: la particion no se bloquea
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic orders.incoming.DLT
 docker exec -u vscode eager_allen bash -lc 'grep "matching\]" /tmp/matching4.log | tail -2'
 
 # Reintentos de la auditoria: parar Postgres y ver como los eventos esperan
 docker stop aggora-postgres && sleep 40
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic alerts.raised.retry-500
 docker start aggora-postgres
 ```
@@ -321,7 +351,7 @@ docker exec aggora-postgres psql -U aggora -d aggora \
   -c "select entity_id, left(payload, 80) from audit_events order by id desc limit 3;"
 
 # El topic de auditoria es compactado
-docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
   --describe --topic audit.events | head -2
 ```
 
@@ -334,7 +364,7 @@ java -jar target/portfolio-risk-0.1.0-SNAPSHOT.jar
 
 curl -s localhost:8081/subjects/orders.executions-value/versions   # [1,2]: el cambio compatible
 
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic portfolio.updates
 ```
 
@@ -348,10 +378,10 @@ java -jar target/order-matching-engine-0.1.0-SNAPSHOT.jar
 AGGORA_FAILEVERYNORDERS=10 java -jar target/order-matching-engine-0.1.0-SNAPSHOT.jar
 
 # Y comparar lo que ve cada tipo de consumidor sobre el MISMO topic:
-docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
   --topic orders.executions --from-beginning --timeout-ms 8000 \
   --consumer-property isolation.level=read_committed | wc -l
-docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
   --topic orders.executions --from-beginning --timeout-ms 8000 \
   --consumer-property isolation.level=read_uncommitted | wc -l
 # read_uncommitted cuenta mas: son las ejecuciones abortadas, que no cuentan para nadie.
@@ -365,12 +395,12 @@ curl -s localhost:8081/subjects/market.ticks.raw-value/versions
 curl -s localhost:8081/config
 
 # El topic ya NO es texto legible: byte mágico 0x00 + 4 bytes de ID de esquema + Avro
-docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.raw \
   --from-beginning --max-messages 1 --timeout-ms 8000 | head -c 60 | cat -v
 
 # Y el evento canónico, que produce el normalizer
-docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.canonical
 ```
 

@@ -263,3 +263,15 @@ y los arreglos:
 | Solo métricas **de Kafka**, no de las aplicaciones | El spec pide lag y throughput por topic, y eso lo da el exporter. Las métricas de JVM/Kafka Streams necesitan `actuator` + `micrometer` en los 7 servicios: queda anotado como la mitad que falta |
 | Permisos de los ficheros montados: `chmod 644` | Los ficheros se crearon con permisos 600 y **dentro del contenedor no corre root** (Prometheus uid 65534, Grafana 472), así que no podían leer su configuración y los contenedores entraban en bucle de reinicio. Lección de Docker, no de Kafka |
 
+### Fase 6: clúster de 3 brokers y replicación
+
+| Decisión | Por qué |
+|---|---|
+| **3 nodos** KRaft, cada uno broker **y** controller, con quórum entre ellos | Sin Zookeeper y con la misma imagen. Es el mínimo para sobrevivir a una caída (con 3, mayoría = 2) |
+| **`KAFKA_DEFAULT_REPLICATION_FACTOR: 3`** y topics declarados **sin réplicas explícitas** | El código deja de fijar `replicas(1)`: manda el default del broker. Así el mismo código sirve para un broker suelto o para un clúster de tres, y no hay que tocarlo al cambiar el tamaño |
+| **`KAFKA_MIN_INSYNC_REPLICAS: 2`** (+ `acks=all`, que ya estaba) | Es lo que convierte "tengo copias" en "no pierdo datos": una escritura se confirma con dos copias al día. Con dos brokers caídos, el productor **deja de escribir** en vez de arriesgar |
+| `replication.factor: 3` en los topics internos de **Kafka Streams** | Los changelog de los state stores son el estado de las ventanas: también tienen que sobrevivir a una caída de broker |
+| El puerto `29092` de cada broker se publica como 29092/29093/29094 | Para poder mirar el clúster desde WSL. Los servicios usan los nombres internos y no les afecta |
+| `--kafka.server` del exporter **repetido** por broker | No acepta una lista con comas: intenta resolver la cadena entera como un solo host y falla (`too many colons in address`). Descubierto en vivo |
+| El clúster nuevo empezó con los topics vacíos | El almacenamiento del broker único no se puede reutilizar (era otro clúster). Lo que importaba —los 131.932 eventos auditados— está en Postgres y sigue ahí. Los topics y esquemas se recrean solos al arrancar los servicios |
+
