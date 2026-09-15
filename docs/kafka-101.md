@@ -613,3 +613,41 @@ servicios en orden, esperando a que cada uno esté listo.
 hace Kubernetes (o systemd): si un servicio se cae, se vuelve a levantar solo. Aquí hay que
 ejecutar el script, que es la diferencia entre "resiliente" y "recuperable a mano".
 
+---
+
+## 15. La Fase 6 (tercera parte): ver lo que pasa
+
+Ya sabemos que el **lag** es la metrica de salud (seccion 3), pero hasta ahora habia que
+mirarlo con un comando a mano. Para verlo en un panel hacen falta tres piezas, y conviene
+tener claro que hace cada una:
+
+| Pieza | Que es | Por que |
+|---|---|---|
+| **kafka-exporter** | Un pequeño servicio que habla con Kafka y publica metricas en `/metrics` | **Prometheus no habla el protocolo de Kafka.** Alguien tiene que traducir: el exporter pregunta al broker por los grupos y sus offsets y los expone como numeros |
+| **Prometheus** | La base de datos de series temporales | Guarda cada numero con su marca de tiempo, cada 10 s, y lo deja consultable. El exporter da el dato de AHORA; Prometheus da la historia |
+| **Grafana** | Lo que pinta los graficos | Consulta Prometheus y dibuja |
+
+Las metricas que importan de verdad:
+
+- `kafka_consumergroup_lag{consumergroup, topic, partition}`: **el retraso**. Si una linea
+  sube sin parar, ese consumidor no da abasto o esta caido. Un lag que sube y baja es
+  normal; uno que sube siempre, no.
+- `kafka_topic_partition_current_offset`: el final del log de cada particion. Su `rate()` es
+  el **throughput** (mensajes por segundo que entran en el topic).
+- `kafka_consumergroup_members`: cuantos consumidores hay en cada grupo (util para ver si un
+  rebalanceo dejo a alguien fuera).
+
+**La leccion de hoy, que no es de Kafka sino de Docker**: el panel no arrancaba. Prometheus
+y Grafana estaban en bucle de reinicio con "no encuentro el fichero de configuracion". Los
+ficheros estaban montados correctamente, pero tenian permisos `600` (solo su dueño puede
+leerlos) y **dentro del contenedor no corre root**: Prometheus corre como uid 65534 y
+Grafana como 472. No podian leerlos. `chmod 644` y a funcionar. Regla: cuando montas un
+fichero de configuracion en un contenedor, mira sus permisos, porque el proceso de dentro no
+es tu usuario.
+
+**Y lo que queda pendiente aqui**: estas metricas son de Kafka, no de las aplicaciones. Para
+ver la JVM, las tareas de Kafka Streams o los reintentos haria falta anadir `actuator` +
+`micrometer-registry-prometheus` a cada servicio y otro trabajo de scrape. Es la mitad que
+falta de la observabilidad (y la que hara falta en la Fase 8 para comparar Spring con
+Quarkus con numeros).
+

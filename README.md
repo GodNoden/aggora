@@ -36,8 +36,10 @@
   - `localhost:29092` (listener EXTERNAL de Kafka)
   - `localhost:8081` (Schema Registry)
   - `localhost:5432` (Postgres)
-  - `localhost:8090` (Redpanda Console)
+  - `localhost:8090` (Redpanda Console, pendiente)
   - `localhost:9090` (Prometheus)
+  - `localhost:9308` (kafka-exporter, metricas en crudo)
+  - `localhost:3000` (Grafana → panel "Aggora — Kafka")
   - `localhost:3000` (Grafana)
 - El código Java NUNCA usa `localhost:9092` ni `localhost:8081`. Siempre
   usa los nombres internos (`kafka:9092`, `schema-registry:8081`).
@@ -164,7 +166,14 @@
   carrera de topics** (Kafka Streams falla con `MissingSourceTopicException` si su topic de
   origen aún no existe: ahora el arranque espera a que cada servicio confirme que está
   listo). Los detalles, en el capítulo 14 de `docs/kafka-101.md`.
-- 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
+- ✅ **Observabilidad (Fase 6)** — **kafka-exporter + Prometheus + Grafana**, con el panel
+  **provisionado desde el repo** (no hay que configurar nada a mano):
+  **http://localhost:3000/d/aggora-kafka** (entrada anónima en dev; `admin/admin` para la API).
+  Paneles: **lag por grupo** y por topic, **throughput por topic**, **mensajes descartados en
+  los DLT** y brokers vivos. Verificado con datos reales: lag de los 6 grupos y throughput
+  (market.analytics ~308 msg/s, market.ticks.raw ~62 msg/s).
+  Pendiente: metricas de las aplicaciones (actuator + micrometer) y el clúster de 3 brokers.
+- 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
   el código (`_schemas`). Las dos cosas tienen su porqué en `docs/decisions.md`.

@@ -253,3 +253,13 @@ y los arreglos:
 | `TaskCorruptedException` puso ERROR pero **se arregló solo**: Streams reinicializó la tarea y la reconstruyó desde su changelog | Nada: es el mecanismo funcionando. Sirve para distinguir "error mortal" de "error auto-reparable" |
 | Los procesos Java no los supervisa nadie: si uno se cae, no vuelve | Deuda consciente: en producción lo hace Kubernetes o systemd. Aquí, ejecutar el script |
 
+### Fase 6: observabilidad (kafka-exporter + Prometheus + Grafana)
+
+| Decisión | Por qué |
+|---|---|
+| **kafka-exporter** delante de Prometheus | Prometheus no habla el protocolo de Kafka: hace falta algo que traduzca los grupos y sus offsets a métricas. El exporter es ese traductor |
+| Panel y fuente de datos **provisionados desde el repo** | Abrir Grafana y configurar un dashboard a mano no se puede revisar ni repetir. Con los ficheros en `infra/grafana/` el panel está versionado y aparece solo al arrancar |
+| Entrada **anónima** en Grafana (rol Admin) | Es un entorno de desarrollo: el panel se abre sin login. Las credenciales del README siguen valiendo para la API |
+| Solo métricas **de Kafka**, no de las aplicaciones | El spec pide lag y throughput por topic, y eso lo da el exporter. Las métricas de JVM/Kafka Streams necesitan `actuator` + `micrometer` en los 7 servicios: queda anotado como la mitad que falta |
+| Permisos de los ficheros montados: `chmod 644` | Los ficheros se crearon con permisos 600 y **dentro del contenedor no corre root** (Prometheus uid 65534, Grafana 472), así que no podían leer su configuración y los contenedores entraban en bucle de reinicio. Lección de Docker, no de Kafka |
+
