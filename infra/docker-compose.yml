@@ -2,6 +2,8 @@ services:
   kafka:
     image: apache/kafka:3.9.0
     container_name: aggora-kafka
+    # Si se reinicia Docker Desktop/WSL, este contenedor vuelve solo.
+    restart: unless-stopped
     hostname: kafka
     ports:
       # Solo publicamos el listener EXTERNAL hacia WSL/Windows.
@@ -66,6 +68,8 @@ services:
   schema-registry:
     image: confluentinc/cp-schema-registry:8.3.1
     container_name: aggora-schema-registry
+    # Si se reinicia Docker Desktop/WSL, este contenedor vuelve solo.
+    restart: unless-stopped
     hostname: schema-registry
     depends_on:
       - kafka
@@ -86,6 +90,8 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: aggora-postgres
+    # Si se reinicia Docker Desktop/WSL, este contenedor vuelve solo.
+    restart: unless-stopped
     hostname: postgres
     ports:
       # Publicado para poder mirarlo desde WSL/Windows con psql.
