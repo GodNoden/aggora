@@ -25,6 +25,7 @@
 
   <modules>
     <module>ingestion-normalizer</module>
+    <module>market-data-simulator</module>
   </modules>
 
   <properties>

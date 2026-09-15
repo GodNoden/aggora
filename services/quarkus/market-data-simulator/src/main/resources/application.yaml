@@ -1,0 +1,208 @@
+# El simulador en Quarkus (Fase 8).
+#
+# El bloque `aggora:` es EL MISMO que el de la version Spring, copiado tal cual: los nombres de
+# las propiedades, los instrumentos y sus precios semilla no se tocan. Cambiar la configuracion al
+# portar el codigo haria que la comparacion de la Fase 9 midiera dos cosas a la vez.
+#
+# Lo que si cambia es como se conecta cada pieza (ver tambien application.properties):
+#
+#   @Scheduled de Spring     ->  @Scheduled de io.quarkus.scheduler
+#   RestClient imperativo    ->  cliente REST declarativo (una interfaz)
+#   actuator/micrometer      ->  micrometer + /q/metrics
+#
+# Se usa YAML para que la lista de instrumentos se lea igual que en Spring; las propiedades planas
+# de los canales de Kafka viven en application.properties, que es donde mejor se leen.
+
+quarkus:
+  application:
+    name: market-data-simulator
+  banner:
+    enabled: false
+
+# Las URLs de los dos clientes REST viven en application.properties: en YAML, una clave con
+# puntos sale del parser entre comillas y Quarkus no la reconoce.
+
+aggora:
+  topics:
+    ticks-raw: market.ticks.raw
+    orders-incoming: orders.incoming
+
+  # Cada cuánto se emite un tick sintético por instrumento abierto (5/s).
+  tick-interval-ms: 200
+
+  # Ordenes simuladas: una cada segundo, empezando a los 15 s (para que el simulador
+  # tenga ya precios de referencia con los que poner precios limite).
+  # Ejercicio de dead-letter topics: cada N ticks se emite uno invalido a proposito.
+  # 0 = desactivado.
+  invalid-tick-every-n: 0
+
+  order-interval-ms: 1000
+  order-initial-delay-ms: 15000
+
+  simulation:
+    volatility-per-tick: 0.0006  # desviación típica del shock, relativa al precio
+    mean-reversion: 0.02         # cuánto tira cada tick hacia la referencia real
+    max-deviation: 0.015         # banda máxima: ±1,5% alrededor de la referencia
+    min-size: 1
+    max-size: 500
+
+  # --- Fuente principal: acciones de EEUU, ETFs, forex y oro spot ---
+  twelve-data:
+    base-url: https://api.twelvedata.com
+    # Sin key el simulador arranca igual: precios semilla y ticks 100% sintéticos.
+    #   export TWELVEDATA_API_KEY=...
+    api-key: ${TWELVEDATA_API_KEY:}
+    poll-interval-ms: 900000     # 15 min
+    initial-delay-ms: 5000
+    # DOS límites en el plan free: 8 créditos/minuto y ~800/día.
+    # Y un crédito = un SÍMBOLO pedido (no una petición). Con los 7 instrumentos de
+    # esta fuente, cada poll gasta 7 créditos en 3 peticiones HTTP: cabe.
+    daily-credit-budget: 750
+
+  # --- Fuente secundaria: lo que Twelve Data no da gratis (Euronext y Shanghai) ---
+  # Su plan free son 25 peticiones/día y 1 petición/SEGUNDO, y no tiene endpoint por
+  # lotes: una petición por símbolo. De ahí que se consulte cada 3 h en vez de cada
+  # 15 min: la interpolación sintética rellena el hueco entre referencias.
+  alpha-vantage:
+    base-url: https://www.alphavantage.co
+    #   export ALPHAVANTAGE_API_KEY=...
+    api-key: ${ALPHAVANTAGE_API_KEY:}
+    poll-interval-ms: 10800000   # 3 h
+    initial-delay-ms: 10000
+    # Cuentas: Euronext abierta 8,5 h -> 3 polls x 3 símbolos = 9; Shanghai 4,5 h
+    # -> 2 polls x 2 símbolos = 4. Total ~13/día, con margen sobre las 25.
+    daily-request-budget: 18
+
+  # feed: de dónde sale el precio de referencia
+  #   TWELVE_DATA    -> precio real cada 15 min
+  #   ALPHA_VANTAGE  -> precio real cada 3 h
+  #   NONE           -> solo precio semilla y ticks sintéticos
+  # feed-symbol es el símbolo tal y como lo espera ESE proveedor: Alpha Vantage
+  # lleva el mercado dentro (MC.PAR = París, 600519.SHH = Shanghai).
+  #
+  # Comprobado el 2026-09-14 contra las dos APIs: Twelve Data free sirve EEUU,
+  # forex, oro y ETFs; Euronext, Shanghai y el crudo spot piden plan de pago allí,
+  # pero Alpha Vantage free sí sirve Euronext (MC.PAR) y Shanghai (600519.SHH).
+  instruments:
+    # --- NYSE / NASDAQ (USD, 09:30-16:00 ET) ---
+    - symbol: AAPL
+      asset-class: EQUITY
+      exchange: NASDAQ
+      currency: USD
+      seed-price: 333.47
+      feed: TWELVE_DATA
+      feed-symbol: AAPL
+      feed-exchange: NASDAQ
+    - symbol: JPM
+      asset-class: EQUITY
+      exchange: NYSE
+      currency: USD
+      seed-price: 285.40
+      feed: TWELVE_DATA
+      feed-symbol: JPM
+      feed-exchange: NYSE
+    - symbol: XOM
+      asset-class: EQUITY
+      exchange: NYSE
+      currency: USD
+      seed-price: 112.80
+      feed: TWELVE_DATA
+      feed-symbol: XOM
+      feed-exchange: NYSE
+    # Doble cotizacion: la MISMA empresa en dos mercados y dos divisas. Es la pareja
+    # que usa analytics-streams para calcular el spread de arbitraje. El simbolo de la
+    # cotizacion europea lleva sufijo (.AMS) para que cada listing sea un instrumento
+    # distinto y no se mezclen sus precios en los mismos agregados.
+    - symbol: ASML
+      asset-class: EQUITY
+      exchange: NASDAQ
+      currency: USD
+      seed-price: 1574.62
+      feed: TWELVE_DATA
+      feed-symbol: ASML
+      feed-exchange: NASDAQ
+    # --- Euronext (EUR, 09:00-17:30 CET; Amsterdam usa la misma zona y horario que Paris) ---
+    - symbol: MC
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 417.45
+      feed: ALPHA_VANTAGE
+      feed-symbol: MC.PAR
+    - symbol: OR
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 384.20
+      feed: ALPHA_VANTAGE
+      feed-symbol: OR.PAR
+    - symbol: AIR
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 195.00
+      feed: ALPHA_VANTAGE
+      feed-symbol: AIR.PAR
+    - symbol: ASML.AMS
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 1383.40
+      feed: ALPHA_VANTAGE
+      feed-symbol: ASML.AMS
+    # --- Shanghai (CNY, 09:30-11:30 y 13:00-15:00 CST) ---
+    - symbol: "600519"
+      asset-class: EQUITY
+      exchange: SSE
+      currency: CNY
+      seed-price: 1277.96
+      feed: ALPHA_VANTAGE
+      feed-symbol: 600519.SHH
+    - symbol: "601398"
+      asset-class: EQUITY
+      exchange: SSE
+      currency: CNY
+      seed-price: 8.22
+      feed: ALPHA_VANTAGE
+      feed-symbol: 601398.SHH
+    # --- FX (24x5). currency = divisa de cotización del par ---
+    - symbol: EUR/USD
+      asset-class: FX
+      exchange: FX
+      currency: USD
+      seed-price: 1.1533
+      feed: TWELVE_DATA
+      feed-symbol: EUR/USD
+    - symbol: USD/CNY
+      asset-class: FX
+      exchange: FX
+      currency: CNY
+      seed-price: 6.7119
+      feed: TWELVE_DATA
+      feed-symbol: USD/CNY
+    # --- Commodities ---
+    # Oro: spot real (XAU/USD), 24x5.
+    - symbol: XAU/USD
+      asset-class: COMMODITY
+      exchange: COMMODITY
+      currency: USD
+      seed-price: 4277.53
+      feed: TWELVE_DATA
+      feed-symbol: XAU/USD
+    # Crudo: el spot (WTI/USD) pide plan de pago en Twelve Data y en Alpha Vantage
+    # solo hay serie diaria, así que usamos el ETF USO, que sí da precio vivo.
+    # OJO: es el precio del ETF, NO el del barril, y cotiza en horario de EEUU.
+    - symbol: USO
+      asset-class: COMMODITY
+      exchange: NYSE
+      currency: USD
+      seed-price: 156.65
+      feed: TWELVE_DATA
+      feed-symbol: USO
+      feed-exchange: NYSE
+
+# --- Metricas para Prometheus (Fase 8) -------------------------------------------
+# El endpoint es /actuator/prometheus. Solo se publican salud y metricas: el resto
+# de endpoints de actuator se quedan cerrados. Las series llevan las etiquetas
+# stack y service, que son las que permiten poner en el mismo panel las dos
+# implementaciones (stack="spring" y stack="quarkus") sin confundirlas.
