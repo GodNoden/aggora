@@ -50,7 +50,63 @@
          generadas y el runtime no se desalineen. -->
     <confluent.version>8.3.1</confluent.version>
     <avro.version>1.12.1</avro.version>
+    <!--
+      Testcontainers: para los tests de integracion (*IT). Spring Boot importa el BOM de
+      Testcontainers en su dependencyManagement, pero NO gestiona los modulos (junit-jupiter, kafka,
+      postgresql), asi que aqui se fija la version. Se usa la MISMA que importa Boot (1.21.3) para
+      no mezclar dos lineas de Testcontainers en el mismo classpath.
+    -->
+    <testcontainers.version>1.21.3</testcontainers.version>
   </properties>
+
+  <!--
+    Testcontainers solo para los tests de integracion (*IT), que levantan Kafka, el Schema Registry
+    y Postgres DE VERDAD. Van en el padre y con scope test porque los *IT viven en los modulos cuyas
+    fronteras prueban (el motor de matching, la auditoria...), y las versiones las decide Spring
+    Boot, que ya importa el BOM de Testcontainers.
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>kafka</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Failsafe: los tests de integracion (*IT) NO corren con `mvn test` (que es lo que se ejecuta
+        en cada guardado), sino con `mvn verify`. Es la separacion de siempre: los unitarios en
+        milisegundos, la integracion -que levanta contenedores- solo cuando toca.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 
   <repositories>
     <repository>

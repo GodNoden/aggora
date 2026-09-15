@@ -675,3 +675,32 @@ comentados, para no volver a pisarlos). Lo que falta para cerrar la fase:
    RocksDB, que es lo que hace pesado el nativo de los servicios de Streams).
 2. Medir con `scripts/measure-service.sh`: arranque en frío y RSS. La misma vara que se usó con la
    JVM, y la comparación que de verdad separa los dos mundos.
+
+## Tests de integración con Testcontainers (lo que faltaba)
+
+Hasta aquí los 81 tests eran **unitarios** (aritmética, reglas y parsing) y la integración se había
+hecho **a mano**: los ports intercambiables, el experimento de exactly-once, el DLT con su cabecera.
+Eso demuestra que funciona, pero no queda automatizado: el día que alguien toque la configuración de
+un canal, nada avisa.
+
+| Decision | Por que |
+|---|---|
+| Los `*IT` van en **failsafe**, no en surefire | `mvn test` (lo que corre en cada guardado) sigue en milisegundos; los que levantan contenedores se ejecutan con `mvn verify`. Es la separación de siempre y la que espera un equipo |
+| Los `*IT` viven en los módulos cuyas fronteras prueban | `OutboxPostgresIT` en `audit-log` (base de datos) y `ExactlyOnceKafkaIT` en `order-matching-engine` (broker, Schema Registry y transacciones) |
+| En el test se usa la imagen `confluentinc/cp-kafka` para el broker | Es la que el `KafkaContainer` de Testcontainers trae probada. En producción el proyecto usa `apache/kafka`: lo que se prueba aquí es el **cableado del cliente**, no la imagen |
+| El CI de GitHub corre unitarios en cada push e integración en cada PR | Es donde tiene que correr: el **devcontainer de este proyecto no tiene socket de Docker**, así que Testcontainers no puede ejecutarse ahí dentro (el mismo muro que paró el nativo) |
+
+Los dos tests, y lo que cazan que un mock no puede:
+
+- **`ExactlyOnceKafkaIT`**: publica una ejecución en una transacción que se confirma y otra en una
+  que se **aborta**, y comprueba que el consumidor `read_committed` solo ve la primera mientras el
+  `read_uncommitted` ve las dos. Es el experimento de la Fase 4, automatizado, y de paso prueba el
+  ida y vuelta de Avro contra el Schema Registry de verdad.
+- **`OutboxPostgresIT`**: ejecuta el **mismo `schema.sql`** contra un Postgres real e insiste en lo
+  que de verdad protege la auditoría: el mismo `(topic, partición, offset)` dos veces se audita una,
+  porque lo garantiza el **índice único de la tabla**, no el código.
+
+**Estado honesto:** los dos están escritos y **compilan** (`mvn test-compile` en verde), pero **no se
+han podido ejecutar en esta máquina**: el devcontainer no tiene Docker y sacarlos por un contenedor
+de Maven desde WSL se quedó en el intento (`Could not find a valid Docker environment`). Corren en
+el CI de GitHub, que es donde tienen que correr.

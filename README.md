@@ -203,6 +203,8 @@ the reason the project exists. The README and the whole commit history are in En
 - **[`docs/schema-evolution-lab.md`](docs/schema-evolution-lab.md)** — what can be changed in
   a contract that is already running without breaking anyone, with the verdicts the registry
   returned and the playbook for doing it in production.
+- **[`docs/interview-notes.md`](docs/interview-notes.md)** — the phases read as interview
+  questions, each answer with the measured number that backs it.
 - **[`SPRING_VS_QUARKUS.md`](SPRING_VS_QUARKUS.md)** — the comparison report: startup and memory
   per service, imperative vs reactive, the gotchas and an honest recommendation.
 - **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — how work happens in this repo, the network and

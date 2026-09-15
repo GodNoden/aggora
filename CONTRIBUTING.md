@@ -332,6 +332,11 @@
   Números: arranque **1,468 s** frente a 2,157 s y RSS **296 MB** frente a 354 MB.
 - ✅ **Fase 9 — el informe comparativo** (hecho): `SPRING_VS_QUARKUS.md`, con los números de los siete
   servicios, el modelo imperativo frente al reactivo, los tropiezos y una recomendación honesta.
+- ✅ **Tests de integración con Testcontainers** (hecho, y es lo que faltaba): dos `*IT` en failsafe
+  (`mvn verify`) —`ExactlyOnceKafkaIT` con Kafka y el Schema Registry de verdad, y
+  `OutboxPostgresIT` contra un Postgres real— más el **workflow de CI** (`.github/workflows/ci.yml`):
+  unitarios en cada push, integración en cada PR. **No se han podido ejecutar aquí**: el devcontainer
+  no tiene Docker, igual que con el nativo. Compilan y corren en el CI.
 - ⏭️ **Fase 8 (lo que queda)** — la **imagen nativa de GraalVM** para dos servicios y las medidas, y
   correr los dos stacks a la vez (con `group.id` y topics de salida propios).
   El nativo **intentado y bloqueado en esta máquina**: la receta corregida está en
