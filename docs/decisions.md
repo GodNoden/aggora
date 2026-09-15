@@ -594,3 +594,29 @@ Los números, mismo servicio y misma máquina:
 | RSS en reposo | 268 MB | 253 MB |
 | Hilos | 39 | 44 |
 | Descriptores abiertos | 24 | 82 |
+
+### Fase 8: el port de `alerting-service` a Quarkus
+
+El tercer servicio de Kafka Streams, y el port más rápido de todos: la receta ya estaba establecida y
+**los tres ficheros de topología se copiaron tal cual** (el `SpikeDetector` con su histéresis, el
+`StaleFeedDetector` con su **punctuator** y la `AlertingTopology` que los engancha). Lo único que
+cambió fue el tipo de la configuración.
+
+| Decision | Por que |
+|---|---|
+| Los dos detectores se copian enteros, **incluido el punctuator** | El punctuator es lo que permite detectar la AUSENCIA de datos (no llega un mensaje que diga "este símbolo se ha parado"), y no depende del framework: es API de Kafka Streams. Es la mejor prueba de la conclusión de la fase |
+| Mismos umbrales: 40 bps para disparar, 20 para rearmar, 30 s de feed parado | Están en el bloque `aggora:` copiado del yml de Spring. Cambiarlos habría hecho incomparables las dos implementaciones |
+| Sin servidor web, métricas ni sonda | Igual que en la cartera: la versión Spring tampoco las tiene |
+
+**Verificado en vivo:** el port arrancó en **1,073 s**, se puso a consumir `market.analytics` y
+`portfolio.updates`, y **levantó los dos tipos de alerta con datos reales**:
+`[alerta] pico de precio en USD/CNY` (el SpikeDetector comparando el último precio con la media de su
+ventana) y `[alerta] CRITICAL MARGIN_BREACH` (el aviso que publica portfolio-risk al superar el
+límite de exposición).
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (proceso hasta listo) | 1,870 s | **1,073 s** |
+| RSS en reposo | 383 MB | **256 MB** |
+| Hilos | 39 | 43 |
+| Descriptores abiertos | 31 | 91 |

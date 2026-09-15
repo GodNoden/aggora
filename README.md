@@ -153,7 +153,7 @@ variables.
 | 5 | Portfolio, alerts and audit with a transactional outbox | ✅ |
 | 6 | Resilience and operations: DLT, retries, 3 brokers, Grafana | ✅ |
 | 7 | Schema evolution lab: what breaks, how it is caught and how it is fixed | ✅ |
-| 8 | Port of the services to Quarkus + GraalVM native image | 🔄 in progress (5 of 7 services ported (only alerting-service and audit-log left)) |
+| 8 | Port of the services to Quarkus + GraalVM native image | 🔄 in progress (6 of 7 services ported (only audit-log left)) |
 | 9 | Spring vs Quarkus comparison report, with numbers | ⏳ |
 
 **Verified live, not in theory:** 41 unit tests green, 3 brokers with a KRaft quorum and 3

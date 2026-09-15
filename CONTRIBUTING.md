@@ -316,10 +316,16 @@
   entorno (**Spring admite `AGGORA_FAILEVERYNORDERS`, Quarkus exige `AGGORA_FAIL_EVERY_N_ORDERS`**)
   y el validador de Avro 1.12.2, que vuelve a aparecer porque este módulo también construye
   registros Avro en sus tests.
-- ⏭️ **Fase 8 (lo que queda)** — los otros 2 servicios: `alerting-service` (Streams con punctuator)
-  y `audit-log` (outbox con Postgres). Después, `group.id` y topics de salida propios para correr
-  los dos stacks a la vez y la imagen nativa de GraalVM para dos servicios (el spec pide *at least
-  two*) con las medidas de arranque y memoria.
+- ✅ **Fase 8 — sexto servicio portado: `alerting-service`** (hecho). El port más rápido de todos: los
+  tres ficheros de topología se copiaron tal cual, **incluido el punctuator** del detector de feed
+  parado (que es API de Kafka Streams, no del framework). Verificado en vivo con datos reales:
+  levantó los dos tipos de alerta, `[alerta] pico de precio en USD/CNY` y
+  `[alerta] CRITICAL MARGIN_BREACH`. Números: arranque **1,073 s** frente a 1,870 s y RSS **256 MB**
+  frente a 383 MB.
+- ⏭️ **Fase 8 (lo que queda)** — `audit-log` (el outbox con Postgres, la única comparación que toca
+  base de datos: JDBC/Panache en vez de `JdbcTemplate`). Después, `group.id` y topics de salida
+  propios para correr los dos stacks a la vez y la imagen nativa de GraalVM para dos servicios (el
+  spec pide *at least two*) con las medidas de arranque y memoria.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
