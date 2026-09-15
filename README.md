@@ -122,6 +122,16 @@
   y prioridad por tiempo) y el experimento de exactly-once en vivo: con fallos
   inyectados cada 10 ordenes, un consumidor `read_committed` veia **121** mensajes y uno
   `read_uncommitted` **168** (los 47 abortados existen en el log pero no cuentan).
+- 🔄 **Fase 5 (en curso)** — `portfolio-risk` ya funciona: abre cada ejecucion en **dos**
+  movimientos (el comprador suma y el vendedor resta), los re-clava por cuenta+simbolo y
+  los acumula en una **KTable** de posiciones (coste medio, P&L realizado, exposicion y
+  aviso de margen) hacia `portfolio.updates`.
+  Verificado: **3 tests** (coste medio ponderado, cierre parcial con P&L y vuelta de
+  posicion), y en vivo posiciones reales con su divisa. De paso, el **primer cambio de
+  esquema compatible** del proyecto: se anadio `currency` con valor por defecto a Order y
+  Execution, y el registry lo acepto como **version 2** sin romper a nadie.
+  **Pendiente de la fase**: `alerting-service` (alertas por ventana) y `audit-log`
+  (transactional outbox con Postgres, que ya esta levantado).
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -230,6 +240,19 @@ docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.analytics
 
 curl -s localhost:8081/subjects   # ahora tambien market.analytics-value
+```
+
+### Verificar la Fase 5 (cartera)
+```bash
+cd /workspaces/aggora/services/portfolio-risk
+java -jar target/portfolio-risk-0.1.0-SNAPSHOT.jar
+# Sus logs muestreados son la forma comoda de verlo:
+#   [cartera] ACC-05 ASML.AMS | cantidad=-141 coste medio=1384.4712 P&L realizado=369.7456 exposicion=195210.4389 EUR
+
+curl -s localhost:8081/subjects/orders.executions-value/versions   # [1,2]: el cambio compatible
+
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic portfolio.updates
 ```
 
 ### Verificar la Fase 4 (exactly-once)

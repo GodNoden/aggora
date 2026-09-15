@@ -204,3 +204,14 @@ Dos incidentes que valen más que la teoría:
 | Las órdenes las genera el **simulador** (`OrderFlowGenerator`), no un módulo nuevo | Ya es el generador de tráfico del proyecto y ya tiene los precios de referencia para poner precios límite creíbles. Un servicio aparte sería un despliegue más sin nada nuevo que enseñar |
 | Inyección de fallo **configurable** (`fail-every-n-orders`) en vez de solo un test | Exactly-once no se demuestra con un test unitario, se demuestra viendo que un mensaje abortado no llega a nadie. Es el mismo criterio que el `kill -9` de la Fase 1 |
 
+## Fase 5 — Cartera, alertas y auditoria (en curso)
+
+| Decisión | Por qué |
+|---|---|
+| **Postgres vuelve a la infraestructura** | El patron transactional outbox del `audit-log` necesita una base de datos donde escribir el evento y el registro de salida en la MISMA transaccion. Se recupera el `postgres:16-alpine` que se perdio en la Fase 0b |
+| Se anade **`currency` a Order y Execution** con **valor por defecto** | Sin divisa, sumar exposiciones de instrumentos en EUR, USD y CNY no significa nada. Se hace como campo con default: eso es un cambio **COMPATIBLE** (el registry lo acepta sin romper a nadie y los mensajes antiguos se leen con el valor por defecto). Es el primer cambio de esquema real del proyecto, y el caso "bueno" que en la Fase 7 se contrastara con uno roto a proposito |
+| El estado de cartera se clavea por **`cuenta\|simbolo`** y en el topic por **cuenta** | La posicion que interesa es por cuenta Y instrumento, pero el spec pide `portfolio.updates` con key = accountId. Se usa una clave compuesta para el estado y se re-clava a la cuenta antes de publicar. El re-clavado obliga a reparticionar, y Kafka Streams lo hace solo (topic `positions-store-repartition`) |
+| `isolation.level=read_committed` tambien en el **Streams** de cartera | Las ejecuciones se publican en transacciones. Si aqui se leyera con `read_uncommitted`, entrarian las ejecuciones ABORTADAS y la cartera contaria operaciones que no ocurrieron. Es la mitad de exactly-once que se olvida |
+| Coste medio solo cambia al **abrir o aumentar**; al cerrar se materializa el resultado | Es la aritmetica de una cartera de verdad. Si la operacion da la vuelta a la posicion, el resto abre al precio nuevo. Los 3 tests cubren los tres casos |
+| Limite de margen **global** (configurable) | Suficiente para el objetivo (producir `marginBreach` y que alerting levante la alerta). En un sistema real seria por cuenta e instrumento, con reglas de margen de verdad |
+
