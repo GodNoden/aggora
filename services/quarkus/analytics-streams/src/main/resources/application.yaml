@@ -1,0 +1,55 @@
+# La analitica en Quarkus (Fase 8).
+#
+# El bloque `aggora:` es EL MISMO que el de la version Spring, copiado tal cual: topics, ventanas
+# y la pareja de arbitraje. Si al portar tambien se cambian las ventanas, la Fase 9 compararia dos
+# cosas a la vez.
+#
+# Lo que cambia es como se monta el motor (ver application.properties):
+#
+#   @EnableKafkaStreams + bean con el StreamsBuilder  ->  @Produces Topology
+#   spring.kafka.streams.*                            ->  quarkus.kafka-streams.* + kafka-streams.*
+#   @RestController                                   ->  recurso JAX-RS
+#   actuator/micrometer + StreamsHealth               ->  micrometer + la sonda que trae la extension
+
+quarkus:
+  application:
+    name: analytics-streams
+  banner:
+    enabled: false
+  # El mismo puerto que la version Spring: solo corre una de las dos a la vez.
+  http:
+    port: 8085
+  jackson:
+    # Las fechas como ISO-8601, igual que Spring: si no, Instant sale como numero de epoch y las
+    # dos implementaciones no devolverian el mismo JSON.
+    write-dates-as-timestamps: false
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    ticks-canonical: market.ticks.canonical
+    analytics: market.analytics
+    arbitrage: market.arbitrage
+    # Topic compactado con los tipos de cambio de referencia, que publica el normalizer.
+    fx-reference: market.fx.reference
+  # Ventanas cortas para poder ver resultados mientras miras.
+  windows:
+    tumbling-size: 30s    # bloques fijos de 30 s, sin solape
+    hopping-size: 60s     # ventana de 60 s...
+    hopping-advance: 15s  # ...recalculada cada 15 s (se solapa con la anterior)
+    grace: 5s             # margen antes de dar una ventana por cerrada
+  # La pareja de cotizaciones de la misma empresa que se cruzan para el spread.
+  arbitrage:
+    root-symbol: ASML
+    european-symbol: ASML.AMS
+    american-symbol: ASML
+    quote-currency: USD
+    # Los dos precios no llegan en el mismo milisegundo: hasta 5 s de separacion se
+    # consideran comparables.
+    join-window: 5s
+
+# --- Metricas para Prometheus (Fase 8) -------------------------------------------
+# El endpoint es /actuator/prometheus. Solo se publican salud y metricas: el resto
+# de endpoints de actuator se quedan cerrados. Las series llevan las etiquetas
+# stack y service, que son las que permiten poner en el mismo panel las dos
+# implementaciones (stack="spring" y stack="quarkus") sin confundirlas.
