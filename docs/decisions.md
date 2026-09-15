@@ -193,3 +193,14 @@ Dos incidentes que valen más que la teoría:
 | El símbolo va como **parámetro de consulta**, no en la ruta | Los pares de divisas llevan barra (`EUR/USD`) y la barra parte la URL en dos segmentos: `/analytics/EUR/USD` daba 404 |
 | Puerto **8085** para la API de analítica | El 8080 lo ocupa el simulador y el 8081 el registry. Ojo: `server.port` va en la RAÍZ del yml, no dentro de `spring:` (lo puse mal y Tomcat se fue al 8080) |
 
+## Fase 4 — Motor de matching con exactly-once
+
+| Decisión | Por qué |
+|---|---|
+| Las ordenes van a `orders.incoming` con key = **SIMBOLO**, no cuenta | **Desviación consciente del spec** (que propone accountId). El motor mantiene un libro por instrumento: para que un libro esté completo, todas las órdenes de un símbolo tienen que caer en la misma partición. Con la cuenta como key, cada partición tendría un libro incompleto y habría que repartir antes de cruzar. Se documenta en vez de sufrirlo en silencio |
+| **Exactly-once** con transacciones: `transaction-id-prefix`, gestor de transacciones en el contenedor y `read_committed` | Publicar la ejecución y confirmar el offset son **una sola operación**: o las dos, o ninguna. Sin eso, una caída entre publicar y confirmar duplica la ejecución (posición contada dos veces) |
+| Manejador de errores que **aborta** en vez de descartar | El `DefaultErrorHandler` por defecto, tras agotar reintentos, **descarta** el mensaje (confirma el offset). Con transacciones eso es perder la orden en silencio. Se configura sin reintentos y relanzando, para que la transacción se deshaga y el mensaje siga pendiente. El destino correcto de un mensaje imposible es un DLT (Fase 6) |
+| El libro de ordenes vive **en memoria** | El spec lo permite y es lo más simple. Contrapartida conocida: si el motor se reinicia, el libro se pierde (solo se reconstruye con las órdenes que vuelvan a entrar). El camino de mejora está claro: un state store (como hace Kafka Streams) o persistirlo junto al outbox |
+| Las órdenes las genera el **simulador** (`OrderFlowGenerator`), no un módulo nuevo | Ya es el generador de tráfico del proyecto y ya tiene los precios de referencia para poner precios límite creíbles. Un servicio aparte sería un despliegue más sin nada nuevo que enseñar |
+| Inyección de fallo **configurable** (`fail-every-n-orders`) en vez de solo un test | Exactly-once no se demuestra con un test unitario, se demuestra viendo que un mensaje abortado no llega a nadie. Es el mismo criterio que el `kill -9` de la Fase 1 |
+

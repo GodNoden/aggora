@@ -113,6 +113,15 @@
   (sin broker), metricas y consultas funcionando en vivo. El spread en vivo solo
   aparece en el solape NASDAQ+Euronext (13:30-15:30 UTC), que es cuando los dos
   mercados cotizan a la vez.
+- ✅ **Fase 4** — `order-matching-engine`: libro de ordenes **por instrumento** (prioridad
+  precio-tiempo) que cruza las ordenes simuladas de `orders.incoming` y publica las
+  ejecuciones en `orders.executions` con **exactly-once**: productor transaccional +
+  gestor de transacciones en el contenedor + consumidor `read_committed`. Las ordenes las
+  genera el simulador (`OrderFlowGenerator`, una por segundo).
+  Verificado: **4 tests** del libro (cruce al precio pasivo, ejecucion parcial, sin cruce
+  y prioridad por tiempo) y el experimento de exactly-once en vivo: con fallos
+  inyectados cada 10 ordenes, un consumidor `read_committed` veia **121** mensajes y uno
+  `read_uncommitted` **168** (los 47 abortados existen en el log pero no cuentan).
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -221,6 +230,25 @@ docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.analytics
 
 curl -s localhost:8081/subjects   # ahora tambien market.analytics-value
+```
+
+### Verificar la Fase 4 (exactly-once)
+```bash
+# Arrancar el motor (el simulador ya genera ordenes)
+cd /workspaces/aggora/services/order-matching-engine
+java -jar target/order-matching-engine-0.1.0-SNAPSHOT.jar
+
+# El experimento: arrancarlo inyectando un fallo cada 10 ordenes, DESPUES de publicar
+AGGORA_FAILEVERYNORDERS=10 java -jar target/order-matching-engine-0.1.0-SNAPSHOT.jar
+
+# Y comparar lo que ve cada tipo de consumidor sobre el MISMO topic:
+docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic orders.executions --from-beginning --timeout-ms 8000 \
+  --consumer-property isolation.level=read_committed | wc -l
+docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic orders.executions --from-beginning --timeout-ms 8000 \
+  --consumer-property isolation.level=read_uncommitted | wc -l
+# read_uncommitted cuenta mas: son las ejecuciones abortadas, que no cuentan para nadie.
 ```
 
 ### Verificar la Fase 2 (con el pipeline arrancado)

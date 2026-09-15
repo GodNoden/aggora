@@ -408,3 +408,58 @@ Fuera de esa franja, una de las dos patas no cotiza y no hay nada que cruzar. Qu
 sistema no invente un spread a partir de un precio de hace horas es la respuesta
 correcta, no un fallo.
 
+---
+
+## 11. La Fase 4 en la práctica: exactamente una vez
+
+Hasta aqui, el consumidor tenia **at-least-once**: puede repetir, no puede perder (el
+marcapaginas se apunta despues de procesar). Para una ejecucion de bolsa eso no vale:
+una ejecucion repetida es una posicion contada dos veces. La Fase 4 monta
+**exactly-once**.
+
+**El problema, en concreto.** El motor de matching tiene que hacer dos cosas que no son
+la misma: (1) publicar la ejecucion en `orders.executions` y (2) apuntar "ya procese
+esta orden". Si publica y se cae antes de apuntar, al reiniciar cruza la orden otra vez
+y salen **dos ejecuciones de la misma operacion**. Si apunta antes de publicar y se cae,
+pierde la ejecucion. Con dos pasos separados no hay forma de acertar siempre.
+
+**La solucion: una transaccion.** Kafka permite meter la publicacion y el commit del
+offset en la MISMA transaccion. Entonces ya no son dos pasos: o se confirman los dos, o
+no se confirma ninguno. Eso es exactly-once.
+
+Las tres piezas que hay que montar (y las tres estan en `application.yml` y en
+`KafkaTransactionConfig`):
+
+1. **Productor transaccional**: `transaction-id-prefix` en el productor. Eso le da un
+   `transactional.id`, que es lo que permite a Kafka reconocer sus transacciones y
+   limpiar las que quedaron a medias si el proceso murio.
+2. **Gestor de transacciones en el contenedor de escucha**: Spring Kafka abre una
+   transaccion por cada poll, el listener publica dentro de ella y, al terminar, los
+   offsets se confirman **dentro de la misma transaccion**.
+3. **Consumidor con `isolation.level=read_committed`**: no me ensenes nada que venga de
+   una transaccion sin confirmar.
+
+**La prueba que lo demuestra** (esta hecha de verdad en el proyecto):
+
+```
+read_committed   -> 121 mensajes
+read_uncommitted -> 168 mensajes
+```
+
+Los 47 de diferencia son ejecuciones **abortadas** (se inyecto un fallo cada 10 ordenes
+despues de publicar). Estan fisicamente en el log, ocupan sitio, y **un consumidor
+`read_committed` no las ve nunca**. Esa es toda la magia: el dato abortado existe pero
+no cuenta.
+
+**Una trampa que cuesta cara**: el manejador de errores por defecto de Spring Kafka,
+cuando un mensaje falla repetidamente, **lo descarta** (confirma el offset y sigue). Con
+transacciones, eso es perder la orden en silencio. Aqui se configura para que relance la
+excepcion y la transaccion se deshaga, de modo que el mensaje siga pendiente. En
+produccion, el destino de un mensaje que no se puede procesar es un topic de descartes
+con su aviso (Fase 6), no el olvido.
+
+**Idempotencia no es lo mismo que transacciones.** El productor idempotente (Fase 1)
+evita duplicados de UN productor reintentando UN mensaje. La transaccion evita
+duplicados entre VARIOS mensajes y offsets, y sobrevive a que el proceso se caiga en
+medio. Son complementarias: la transaccion necesita idempotencia por debajo.
+
