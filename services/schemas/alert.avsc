@@ -1,0 +1,34 @@
+{
+  "type": "record",
+  "name": "Alert",
+  "namespace": "com.aggora.avro.alerts",
+  "doc": "Una alerta levantada por alerting-service. Es el contrato de alerts.raised (subject alerts.raised-value).",
+  "fields": [
+    {"name": "alertId", "type": "string"},
+    {
+      "name": "type",
+      "type": {
+        "type": "enum",
+        "name": "AlertType",
+        "symbols": ["PRICE_SPIKE", "STALE_FEED", "MARGIN_BREACH"]
+      }
+    },
+    {
+      "name": "severity",
+      "type": {"type": "enum", "name": "Severity", "symbols": ["INFO", "WARNING", "CRITICAL"]}
+    },
+    {"name": "subject", "type": "string", "doc": "Simbolo o cuenta a la que se refiere la alerta."},
+    {"name": "detail", "type": "string", "doc": "Explicacion en texto, para que la alerta se entienda sin mirar el numero."},
+    {
+      "name": "value",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "El numero que disparo la alerta (desviacion, exposicion, segundos sin datos)."
+    },
+    {
+      "name": "threshold",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "El limite configurado contra el que se compara."
+    },
+    {"name": "raisedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: alerting-service
+
+  kafka:
+    bootstrap-servers: kafka:9092
+    streams:
+      application-id: alerting-service
+      client-id: alerting-service
+      state-dir: /tmp/aggora-alerting-state
+      properties:
+        default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        default.value.serde: io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde
+        schema.registry.url: http://schema-registry:8081
+        commit.interval.ms: 1000
+        num.stream.threads: 1
+        auto.offset.reset: earliest
+        # Las posiciones vienen de la cartera, que lee ejecuciones transaccionales.
+        isolation.level: read_committed
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    analytics: market.analytics
+    portfolio-updates: portfolio.updates
+    alerts-raised: alerts.raised
+  # Desviacion minima (en puntos basicos) entre el ultimo precio y la media de la ventana
+  # para considerar que es un pico. 40 bps = 0,4%.
+  price-spike-bps: 40
+  # Histeresis: para volver a considerar "normal" el precio hay que bajar de aqui. Evita
+  # que un precio que oscila alrededor del umbral este avisando sin parar.
+  price-spike-rearm-bps: 20
+  # Feed parado: si un simbolo lleva mas de este tiempo sin datos, se avisa.
+  stale-feed-timeout: 30s
+  stale-feed-check-interval: 10s
