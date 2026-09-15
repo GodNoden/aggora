@@ -34,6 +34,29 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Nada de topics fantasma: solo existen los que declara el codigo con NewTopic.
+      # Con la autocreacion activa, un typo en un nombre crea un topic de 1 particion
+      # en silencio y el error aparece mucho despues (nos paso con un console consumer).
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    networks:
+      - aggora-net
+
+  # Topics internos que NO declara el codigo de la aplicacion. Con la autocreacion
+  # apagada hay que crearlos aqui: el Schema Registry no crea su propio _schemas si
+  # auto.create.topics.enable esta en false, y sin el se queda atascado (y el
+  # serializador Avro bloquea al productor, porque serializa en su mismo hilo).
+  # Es un contenedor de un solo uso: crea y termina.
+  kafka-init:
+    image: apache/kafka:3.9.0
+    container_name: aggora-kafka-init
+    depends_on:
+      - kafka
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic _schemas --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+        echo "topics internos listos"
     networks:
       - aggora-net
 
@@ -41,7 +64,7 @@ services:
   # esquema es compatible. No es un broker: es un servicio HTTP que además usa
   # Kafka por dentro para guardarse a sí mismo (el topic _schemas).
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.1
+    image: confluentinc/cp-schema-registry:8.3.1
     container_name: aggora-schema-registry
     hostname: schema-registry
     depends_on:
