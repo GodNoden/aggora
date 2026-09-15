@@ -29,7 +29,7 @@ SERVICES=(
   "alerting-service:Started AlertingServiceApplication"
   "audit-log:Started AuditLogApplication"
 )
-SERVICES_DIR=/workspaces/aggora/services
+SERVICES_DIR=/workspaces/aggora/services/spring
 LOG_DIR=${AGGORA_LOG_DIR:-/tmp}
 
 if [ -z "${ALPHAVANTAGE_API_KEY:-}" ] && [ -f "$HOME/.secrets/alphavantage" ]; then

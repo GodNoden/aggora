@@ -6,13 +6,13 @@
 
   <parent>
     <groupId>com.aggora</groupId>
-    <artifactId>aggora-services</artifactId>
+    <artifactId>aggora-spring-services</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>order-matching-engine</artifactId>
-  <name>order-matching-engine</name>
-  <description>Libro de ordenes por instrumento y ejecuciones con exactly-once</description>
+  <artifactId>alerting-service</artifactId>
+  <name>alerting-service</name>
+  <description>Deteccion de anomalias: picos de precio, feed parado y margen superado</description>
 
   <dependencies>
     <dependency>
@@ -24,14 +24,23 @@
       <artifactId>spring-boot-starter-kafka</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-streams</artifactId>
+    </dependency>
+    <dependency>
       <groupId>io.confluent</groupId>
-      <artifactId>kafka-avro-serializer</artifactId>
+      <artifactId>kafka-streams-avro-serde</artifactId>
       <version>${confluent.version}</version>
     </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-streams-test-utils</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -49,7 +58,7 @@
               <goal>schema</goal>
             </goals>
             <configuration>
-              <sourceDirectory>${project.basedir}/../schemas</sourceDirectory>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
               <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
               <stringType>String</stringType>
               <enableDecimalLogicalType>true</enableDecimalLogicalType>

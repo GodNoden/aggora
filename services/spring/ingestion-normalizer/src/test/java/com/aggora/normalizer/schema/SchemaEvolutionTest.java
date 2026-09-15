@@ -52,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SchemaEvolutionTest {
 
     /** Los .avsc reales del proyecto: el mismo directorio del que el build genera las clases. */
-    private static final Path ESQUEMAS = Path.of("..", "schemas");
+    private static final Path ESQUEMAS = Path.of("..", "..", "schemas");
 
     /** El esquema propuesto en la fase 7: canonical.avsc + venueMic (opcional, con default). */
     private static final String PROPUESTA = "/canonical-v2.avsc";

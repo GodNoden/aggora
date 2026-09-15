@@ -6,13 +6,13 @@
 
   <parent>
     <groupId>com.aggora</groupId>
-    <artifactId>aggora-services</artifactId>
+    <artifactId>aggora-spring-services</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>portfolio-risk</artifactId>
-  <name>portfolio-risk</name>
-  <description>Posiciones y P&amp;L por cuenta desde las ejecuciones, con KTable</description>
+  <artifactId>audit-log</artifactId>
+  <name>audit-log</name>
+  <description>Auditoria con el patron transactional outbox (Postgres + Kafka)</description>
 
   <dependencies>
     <dependency>
@@ -23,24 +23,31 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-kafka</artifactId>
     </dependency>
+    <!-- JdbcTemplate y el gestor de transacciones de la base de datos. -->
     <dependency>
-      <groupId>org.apache.kafka</groupId>
-      <artifactId>kafka-streams</artifactId>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>io.confluent</groupId>
-      <artifactId>kafka-streams-avro-serde</artifactId>
+      <artifactId>kafka-avro-serializer</artifactId>
       <version>${confluent.version}</version>
+    </dependency>
+    <!-- Lo necesita el patron de retry topics (@RetryableTopic). -->
+    <dependency>
+      <groupId>org.springframework.retry</groupId>
+      <artifactId>spring-retry</artifactId>
+      <version>2.0.12</version>
     </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.kafka</groupId>
-      <artifactId>kafka-streams-test-utils</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -58,7 +65,7 @@
               <goal>schema</goal>
             </goals>
             <configuration>
-              <sourceDirectory>${project.basedir}/../schemas</sourceDirectory>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
               <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
               <stringType>String</stringType>
               <enableDecimalLogicalType>true</enableDecimalLogicalType>

@@ -99,7 +99,7 @@ infrastructure that comes up with a single command.
 | Kafka Streams | Plain API (`Topology`) | The point is to learn the API, not to hide it |
 | Postgres | `postgres:16-alpine` | Transactional outbox pattern |
 | Observability | kafka-exporter + Prometheus + Grafana | Dashboard provisioned from the repo, no clicking |
-| Build | Maven multi-module | One parent `pom.xml` and seven modules under `services/` |
+| Build | Maven multi-module | An aggregator in `services/` with one parent per implementation (`spring/` today, `quarkus/` in phase 8) |
 
 ---
 
@@ -176,15 +176,16 @@ docs/decisions.md          decision log and the deliberate deviations from the s
 docs/schema-evolution-lab.md  the schema evolution lab manual
 infra/                     docker-compose, Prometheus, Grafana dashboard
 scripts/                   start/stop of the services, plus the schema evolution lab
-services/                  Maven multi-module
+services/                  Maven aggregator: the platform in both implementations
   schemas/                 the 12 Avro contracts (.avsc) the classes are generated from
-  market-data-simulator/   real prices + simulated orders
-  ingestion-normalizer/    validation and the canonical event
-  analytics-streams/       windows, joins and interactive queries
-  order-matching-engine/   order book and exactly-once
-  portfolio-risk/          positions and P&L per account
-  alerting-service/        anomaly rules
-  audit-log/               transactional outbox
+  spring/                  Spring Boot implementation (phase 1)
+    market-data-simulator/ real prices + simulated orders
+    ingestion-normalizer/  validation and the canonical event
+    analytics-streams/     windows, joins and interactive queries
+    order-matching-engine/ order book and exactly-once
+    portfolio-risk/        positions and P&L per account
+    alerting-service/      anomaly rules
+    audit-log/             transactional outbox
 ```
 
 ---

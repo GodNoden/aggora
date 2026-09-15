@@ -6,7 +6,7 @@
 
   <parent>
     <groupId>com.aggora</groupId>
-    <artifactId>aggora-services</artifactId>
+    <artifactId>aggora-spring-services</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
@@ -69,7 +69,7 @@
               <goal>schema</goal>
             </goals>
             <configuration>
-              <sourceDirectory>${project.basedir}/../schemas</sourceDirectory>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
               <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
               <stringType>String</stringType>
               <enableDecimalLogicalType>true</enableDecimalLogicalType>

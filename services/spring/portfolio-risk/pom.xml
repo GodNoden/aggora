@@ -6,13 +6,13 @@
 
   <parent>
     <groupId>com.aggora</groupId>
-    <artifactId>aggora-services</artifactId>
+    <artifactId>aggora-spring-services</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>market-data-simulator</artifactId>
-  <name>market-data-simulator</name>
-  <description>Genera ticks de mercado (referencia real + interpolación sintética) hacia market.ticks.raw</description>
+  <artifactId>portfolio-risk</artifactId>
+  <name>portfolio-risk</name>
+  <description>Posiciones y P&amp;L por cuenta desde las ejecuciones, con KTable</description>
 
   <dependencies>
     <dependency>
@@ -23,18 +23,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-kafka</artifactId>
     </dependency>
-    <!-- RestClient (spring-web) para el reference feed de Twelve Data.
-         El servidor Tomcat que trae el starter se usará en la Fase 6 (actuator/Prometheus). -->
     <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-streams</artifactId>
     </dependency>
-
-    <!-- Serializadores Avro de Confluent: registran el esquema en el Schema
-         Registry y meten el ID del esquema en cada mensaje. -->
     <dependency>
       <groupId>io.confluent</groupId>
-      <artifactId>kafka-avro-serializer</artifactId>
+      <artifactId>kafka-streams-avro-serde</artifactId>
       <version>${confluent.version}</version>
     </dependency>
 
@@ -43,12 +38,15 @@
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-streams-test-utils</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
     <plugins>
-      <!-- Genera las clases Java a partir de los .avsc de services/schemas.
-           No se escriben a mano: el esquema es la fuente de verdad. -->
       <plugin>
         <groupId>org.apache.avro</groupId>
         <artifactId>avro-maven-plugin</artifactId>
@@ -60,7 +58,7 @@
               <goal>schema</goal>
             </goals>
             <configuration>
-              <sourceDirectory>${project.basedir}/../schemas</sourceDirectory>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
               <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
               <stringType>String</stringType>
               <enableDecimalLogicalType>true</enableDecimalLogicalType>

@@ -5,56 +5,30 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    Parent de TODOS los servicios de Aggora.
-    Fase 1 (Spring Boot) y Fase 8 (Quarkus) viven en módulos separados del mismo
-    multi-módulo Maven. Heredar de spring-boot-starter-parent nos da el
-    dependencyManagement de Spring Boot y Java 21 sin escribir versiones.
+    Agregador de services/: las DOS implementaciones de la plataforma.
 
-    Versión: última parche de la línea 3.5.x. El arranque avisaba de que 3.5.3 ya
-    no recibe soporte OSS, así que se sube a 3.5.16 (mismo minor: sin migración).
+    No hereda de nadie a proposito. Cada implementacion tiene su propio padre:
+
+      services/spring/pom.xml   -> hereda de spring-boot-starter-parent
+      services/quarkus/pom.xml  -> importa el BOM de Quarkus (Fase 8)
+
+    Si este agregador heredara de Spring, los modulos de Quarkus se traerian el
+    dependencyManagement y los plugins de Spring sin pedirlo, y las versiones de
+    kafka-clients, Jackson o JUnit las decidiria Spring en vez del BOM de Quarkus.
+
+    Los contratos Avro (services/schemas/*.avsc) son de los dos: cada
+    implementacion genera sus propias clases a partir de los mismos ficheros, que
+    es lo que hace que las dos versiones hablen el mismo idioma en el topic.
   -->
-  <parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.1.1</version>
-    <relativePath/>
-  </parent>
-
   <groupId>com.aggora</groupId>
   <artifactId>aggora-services</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>aggora-services</name>
-  <description>Servicios de Aggora (plataforma de mercados globales sobre Kafka)</description>
+  <description>Aggora: la plataforma de mercados en sus dos implementaciones (Spring y Quarkus)</description>
 
   <modules>
-    <module>market-data-simulator</module>
-    <module>ingestion-normalizer</module>
-    <module>analytics-streams</module>
-    <module>order-matching-engine</module>
-    <module>portfolio-risk</module>
-    <module>alerting-service</module>
-    <module>audit-log</module>
+    <module>spring</module>
+    <!-- <module>quarkus</module> Se anade cuando exista el port de la Fase 8. -->
   </modules>
-
-  <properties>
-    <java.version>21</java.version>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <!-- La libreria de Avro de Confluent NO esta en Maven Central: vive en su
-         repositorio, declarado mas abajo. 8.3.1 es la ultima y esta alineada con
-         los clientes de Kafka 4.x que trae Spring Boot 4. La version del plugin de
-         Avro se fija a la misma que arrastra esa libreria para que las clases
-         generadas y el runtime no se desalineen. -->
-    <confluent.version>8.3.1</confluent.version>
-    <avro.version>1.12.1</avro.version>
-  </properties>
-
-  <repositories>
-    <repository>
-      <id>confluent</id>
-      <name>Confluent Maven Repository</name>
-      <url>https://packages.confluent.io/maven/</url>
-    </repository>
-  </repositories>
-
 </project>

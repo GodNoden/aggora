@@ -32,7 +32,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUBJECT="${SUBJECT:-market.ticks.canonical-value}"
 V1="$ROOT/services/schemas/canonical.avsc"
-PROPUESTA="$ROOT/services/ingestion-normalizer/src/test/resources/canonical-v2.avsc"
+PROPUESTA="$ROOT/services/spring/ingestion-normalizer/src/test/resources/canonical-v2.avsc"
 ANALITICA="${ANALITICA:-http://localhost:8085}"
 
 TEMPORAL="$(mktemp -d)"

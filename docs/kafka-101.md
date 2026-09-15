@@ -784,6 +784,6 @@ y su única llave acaba de desaparecer. Por eso el laboratorio registra, comprue
 `scripts/schema-evolution-lab.sh` (que deja el registro como estaba y se limpia solo si se
 corta a la mitad) y la traducción de Avro se comprueba sin broker en
 `SchemaEvolutionTest`, con la clase ya compilada haciendo de consumidor antiguo. El esquema
-propuesto está en `services/ingestion-normalizer/src/test/resources/canonical-v2.avsc`:
+propuesto está en `services/spring/ingestion-normalizer/src/test/resources/canonical-v2.avsc`:
 `canonical.avsc` con un campo `venueMic` al final que tiene `"default": ""`. Ese `default`
 es todo el cambio.

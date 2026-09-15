@@ -144,7 +144,7 @@ dentro de `comprobar_con_nivel`, para enseñar la otra columna.
 
 El script mide lo que dice el **registro**. Para comprobar que lo que dice es verdad hace
 falta ver la traducción de Avro funcionando, y eso no necesita ni Kafka ni registro:
-`services/ingestion-normalizer/src/test/java/com/aggora/normalizer/schema/SchemaEvolutionTest.java`.
+`services/spring/ingestion-normalizer/src/test/java/com/aggora/normalizer/schema/SchemaEvolutionTest.java`.
 
 Cinco tests, con el fichero `canonical-v2.avsc` como propuesta, que demuestran lo mismo con
 la clase `CanonicalTick` **ya compilada** (el "consumidor antiguo" de verdad, sin
@@ -156,7 +156,7 @@ recompilar nada):
 4. renombrar rompe la lectura y con un alias no;
 5. borrar un campo deja leer al nuevo pero deja ciego al antiguo.
 
-`mvn -pl ingestion-normalizer test -Dtest=SchemaEvolutionTest`
+`mvn -pl spring/ingestion-normalizer test -Dtest=SchemaEvolutionTest`
 
 ---
 

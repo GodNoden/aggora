@@ -77,10 +77,13 @@
   (`schema-evolution-lab.md`).
 - `infra/` — docker-compose, configs de Prometheus/Grafana.
 - `scripts/` — arranque y parada de los servicios y el laboratorio de esquemas.
-- `services/` — microservicios (multi-módulo Maven):
-  - `schemas/` — los contratos Avro (`.avsc`) de los que se generan las clases Java.
-  - `market-data-simulator` — produce ticks a `market.ticks.raw`.
-  - `ingestion-normalizer` — los consume con commit manual.
+- `services/` — agregador Maven de las DOS implementaciones (no hereda de nadie):
+  - `schemas/` — los contratos Avro (`.avsc`) de los que se generan las clases Java,
+    compartidos por las dos implementaciones.
+  - `spring/` — implementación Spring Boot (Fase 1): `market-data-simulator` (produce
+    ticks a `market.ticks.raw`), `ingestion-normalizer` (los consume con commit
+    manual) y los otros cinco.
+  - `quarkus/` — implementación Quarkus (Fase 8).
 
 ## Estado actual (actualizar al cerrar cada fase)
 - ✅ **Fase 0a** — Kafka solo, red `aggora-net` creada y verificada
@@ -90,7 +93,7 @@
   está (Fase 2)**; Postgres en Fase 5; Redpanda Console, kafka-exporter, Prometheus
   y Grafana en Fase 6. Ver `docs/decisions.md`.
 - ✅ **Fase 1** — `market-data-simulator` y `ingestion-normalizer` (Spring Boot 4.1.1,
-  Java 21, multi-módulo Maven en `services/`). Verificado end-to-end:
+  Java 21, multi-módulo Maven en `services/spring/`). Verificado end-to-end:
   topic `market.ticks.raw` creado con 6 particiones, ~53 ticks/s con key = symbol,
   productor idempotente sin fallos, consumidor con commit manual y lag 0,
   rebalanceo 3/3 al arrancar una segunda instancia, y reprocesión de offsets
@@ -307,7 +310,7 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.arbitrage
 ```
 # Arrancar el tercer servicio (necesita el pipeline de la Fase 1-2 en marcha)
-cd /workspaces/aggora/services/analytics-streams
+cd /workspaces/aggora/services/spring/analytics-streams
 java -jar target/analytics-streams-0.1.0-SNAPSHOT.jar
 
 # Lo mas comodo: sus logs muestreados, con las metricas ya calculadas
@@ -392,7 +395,7 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server loc
 
 ### Verificar la Fase 5 (cartera)
 ```bash
-cd /workspaces/aggora/services/portfolio-risk
+cd /workspaces/aggora/services/spring/portfolio-risk
 java -jar target/portfolio-risk-0.1.0-SNAPSHOT.jar
 # Sus logs muestreados son la forma comoda de verlo:
 #   [cartera] ACC-05 ASML.AMS | cantidad=-141 coste medio=1384.4712 P&L realizado=369.7456 exposicion=195210.4389 EUR
@@ -406,7 +409,7 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
 ### Verificar la Fase 4 (exactly-once)
 ```bash
 # Arrancar el motor (el simulador ya genera ordenes)
-cd /workspaces/aggora/services/order-matching-engine
+cd /workspaces/aggora/services/spring/order-matching-engine
 java -jar target/order-matching-engine-0.1.0-SNAPSHOT.jar
 
 # El experimento: arrancarlo inyectando un fallo cada 10 ordenes, DESPUES de publicar
@@ -447,7 +450,7 @@ bash scripts/schema-evolution-lab.sh
 
 # La traducción de Avro, sin broker ni registro
 cd /workspaces/aggora/services
-mvn -q -pl ingestion-normalizer test -Dtest=SchemaEvolutionTest
+mvn -q -pl spring/ingestion-normalizer test -Dtest=SchemaEvolutionTest
 ```
 
 ## Decisiones tomadas (link a docs/decisions.md para el detalle)
