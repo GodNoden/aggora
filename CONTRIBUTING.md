@@ -330,10 +330,14 @@
   seguro de tipos). Verificado en vivo: creó las tablas, consumió los tres topics, **190.628 eventos
   auditados** y la outbox drenándose de verdad (**190.622 publicados, 6 pendientes**), sin errores.
   Números: arranque **1,468 s** frente a 2,157 s y RSS **296 MB** frente a 354 MB.
-- ⏭️ **Fase 8 (lo que queda)** — lo que pide el spec y no es copiar código: correr los dos stacks a
-  la vez (con `group.id` y topics de salida propios), la **imagen nativa de GraalVM** para dos
-  servicios (*at least two*) con las medidas de arranque y memoria, y el cierre con el informe de la
-  Fase 9.
+- ⏭️ **Fase 8 (lo que queda)** — la **imagen nativa de GraalVM** para dos servicios y las medidas, y
+  correr los dos stacks a la vez (con `group.id` y topics de salida propios).
+  El nativo **intentado y bloqueado en esta máquina**: la receta corregida está en
+  `scripts/build-native.sh` y los cuatro tropiezos (la imagen del builder no trae Maven, `-Dnative`
+  no hace nada sin el perfil `native` en el pom, el contenedor de Maven necesita el CLI de docker
+  dentro, y el tag del builder tiene que cuadrar con la versión de Quarkus) están en
+  `docs/decisions.md`. Se compila en una máquina con Mandrel instalado, y luego se mide con
+  `scripts/measure-service.sh` igual que la JVM.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash

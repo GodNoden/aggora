@@ -653,3 +653,25 @@ con la bandeja de salida drenándose de verdad: **190.622 publicados** y **6 pen
 Con esto **los siete servicios están portados**. Lo que queda de la fase es lo que pide el spec y no
 es copiar código: correr los dos stacks a la vez (con `group.id` y topics de salida propios), la
 **imagen nativa de GraalVM** para dos servicios y las medidas que van al informe de la Fase 9.
+
+## Fase 8: el binario nativo (lo que falta, y por qué)
+
+El spec pide la imagen nativa de GraalVM para dos servicios. **En esta maquina no se ha podido
+completar**, y el intento deja cuatro tropiezos que son exactamente los "native image gotchas" que
+el informe de la Fase 9 tiene que documentar:
+
+| Intento | Lo que pasó |
+|---|---|
+| `docker run` con la imagen del builder y `mvn` dentro | La imagen `ubi9-quarkus-mandrel-builder-image` **no trae Maven**: solo `/opt/mandrel`. Está pensada para que la use el plugin de Quarkus, no para ejecutarla a mano |
+| `mvn package -Dnative` desde un contenedor de Maven con el socket de Docker | **BUILD SUCCESS y ningún binario**: los poms de este proyecto están escritos a mano y **no tienen el perfil `native`**, así que `-Dnative` no activa nada. La propiedad que de verdad manda es `-Dquarkus.package.type=native` |
+| Lo mismo, con `-Dquarkus.package.type=native` | `ContainerRuntimeUtil.detectContainerRuntime`: el contenedor de Maven **no tiene el ejecutable de `docker` dentro**, y no basta con montarle el socket |
+| Lo mismo, montando también el CLI de docker | `checkGraalVMVersion`: el tag del builder (`jdk-21`) **no es el que espera Quarkus 3.39**. El arreglo es no fijarlo y dejar que Quarkus use su imagen por defecto |
+
+El script `scripts/build-native.sh` queda con la receta corregida (y con los cuatro tropiezos
+comentados, para no volver a pisarlos). Lo que falta para cerrar la fase:
+
+1. Compilar el nativo en una máquina con **Mandrel instalado** (`sdk install java 21.x-mandrel`) o
+   con el builder correcto, para `ingestion-normalizer` y `market-data-simulator` (los dos sin
+   RocksDB, que es lo que hace pesado el nativo de los servicios de Streams).
+2. Medir con `scripts/measure-service.sh`: arranque en frío y RSS. La misma vara que se usó con la
+   JVM, y la comparación que de verdad separa los dos mundos.
