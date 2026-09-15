@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: audit-log
+
+  # Postgres: aqui vive la auditoria y la bandeja de salida (outbox).
+  datasource:
+    url: jdbc:postgresql://postgres:5432/aggora
+    username: aggora
+    password: aggora
+  sql:
+    init:
+      # Ejecuta schema.sql al arrancar: el servicio crea sus tablas.
+      mode: always
+
+  kafka:
+    bootstrap-servers: kafka:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: audit-log
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      properties:
+        specific.avro.reader: true
+        # Las ejecuciones vienen de transacciones: no se audita lo que se aborto.
+        isolation.level: read_committed
+    properties:
+      schema.registry.url: http://schema-registry:8081
+    listener:
+      missing-topics-fatal: false
+      log-container-config: false
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    executions: orders.executions
+    portfolio-updates: portfolio.updates
+    alerts: alerts.raised
+    audit-events: audit.events
+  # Cada cuanto mira el publicador si hay recados pendientes en la outbox.
+  relay-interval-ms: 1000
+  relay-batch-size: 200

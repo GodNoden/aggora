@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "AuditEvent",
+  "namespace": "com.aggora.avro.audit",
+  "doc": "Un evento auditado ya publicado al topic COMPACTADO audit.events (subject audit.events-value). Es un sobre: el evento original va como JSON en un campo de texto, porque el topic es uno solo y los eventos auditados son de tipos distintos (ejecuciones, posiciones, alertas). El contrato tipado de cada evento vive en su topic de origen; aqui lo que importa es que quede registrado y sea rastreable.",
+  "fields": [
+    {"name": "auditId", "type": "string"},
+    {"name": "entityType", "type": "string", "doc": "Tipo de entidad: el nombre completo del esquema original."},
+    {"name": "entityId", "type": "string", "doc": "Clave de la entidad (simbolo, cuenta...). Es la key del mensaje, y por eso el topic compactado se queda con el ultimo estado de cada entidad."},
+    {"name": "sourceTopic", "type": "string"},
+    {"name": "sourcePartition", "type": "int"},
+    {"name": "sourceOffset", "type": "long"},
+    {"name": "payload", "type": "string", "doc": "El evento original en JSON, tal cual se guardo en Postgres."},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Cuando ocurrio el evento."},
+    {"name": "recordedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Cuando lo registro la auditoria."}
+  ]
+}
