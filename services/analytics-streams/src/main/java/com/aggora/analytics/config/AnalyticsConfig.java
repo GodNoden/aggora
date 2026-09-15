@@ -5,9 +5,13 @@ import com.aggora.analytics.topology.MetricsTopology;
 import com.aggora.avro.analytics.SymbolMetrics;
 
 import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler;
 import org.apache.kafka.streams.kstream.KStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.StreamsBuilderFactoryBeanConfigurer;
 
 /**
  * Enganche de la topologia con Spring.
@@ -18,6 +22,30 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class AnalyticsConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(AnalyticsConfig.class);
+
+    /**
+     * Que hacer cuando Kafka Streams se encuentra un error que no puede manejar el solo.
+     *
+     * Por defecto, el cliente se para: pasa a estado ERROR y deja de procesar. Y aqui esta
+     * lo peligroso, que se descubrio operando el cluster: **el proceso Java sigue vivo**, el
+     * endpoint HTTP responde, y el servicio PARECE sano mientras no hace nada. Un fallo
+     * silencioso, que es el peor tipo.
+     *
+     * Con este manejador se sustituye el hilo que fallo en vez de matar el cliente, asi que
+     * el servicio se recupera solo (por ejemplo, cuando el hilo global de una GlobalKTable
+     * muere porque el topic compactado se recreo y su checkpoint apunta a offsets que ya no
+     * existen). Es la respuesta que recomienda la propia documentacion de Kafka Streams.
+     */
+    @Bean
+    public StreamsBuilderFactoryBeanConfigurer streamsResilience() {
+        return factoryBean -> factoryBean.setStreamsUncaughtExceptionHandler(throwable -> {
+            log.error("[streams] error no controlado ({}): se sustituye el hilo para seguir procesando",
+                    throwable.getMessage());
+            return StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.REPLACE_THREAD;
+        });
+    }
 
     @Bean
     public AvroSerdes avroSerdes(AggoraProperties props) {

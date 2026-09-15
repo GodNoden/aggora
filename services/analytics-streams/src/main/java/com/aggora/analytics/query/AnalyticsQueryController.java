@@ -84,6 +84,12 @@ public class AnalyticsQueryController {
         if (streams == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Kafka Streams todavia no esta en marcha");
         }
+        if (streams.state() == KafkaStreams.State.ERROR) {
+            // Estado ERROR: el proceso vive pero el motor no. Es un fallo silencioso y hay que
+            // decirlo claro en vez de devolver un 500 generico.
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Kafka Streams esta en estado ERROR: mira su log, el servicio no esta procesando");
+        }
         try {
             return streams.store(StoreQueryParameters.fromNameAndType(
                     MetricsTopology.TUMBLING_STORE, QueryableStoreTypes.windowStore()));
