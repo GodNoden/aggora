@@ -1,66 +1,63 @@
 # Aggora — Global Markets Event Platform
 
-**Un proyecto para aprender Kafka de verdad: no con diapositivas, sino construyendo en
-vivo una plataforma de datos de mercado y midiendo lo que pasa.**
+**A project for actually learning Kafka: not with slides, but by building a market-data
+platform live and measuring what happens.**
 
-> *A hands-on Kafka deep-dive: a market-data platform built service by service, with the
-> numbers, the failures and the fixes documented as they happened.*
+Aggora ingests real equity and FX prices, normalises them, computes windowed analytics,
+matches orders in an order book, tracks every account's portfolio, raises alerts and audits
+the whole thing. Every piece exists to exercise **one specific Kafka concept**, and every
+claim in this repository is verified against the running cluster.
 
-Aggora ingiere precios reales de bolsa y divisas, los normaliza, calcula analítica en
-ventanas, cruza órdenes en un libro de órdenes, lleva la cartera de cada cuenta, levanta
-alertas y lo audita todo. Cada pieza existe para ejercitar **un concepto de Kafka** concreto,
-y cada afirmación del proyecto está verificada contra el clúster en marcha.
-
-Los datos de mercado son **reales** (dos proveedores gratuitos). Los fallos también son
-reales: en `docs/decisions.md` y en `docs/kafka-101.md` están los problemas que aparecieron,
-por qué aparecieron y cómo se arreglaron.
+The market data is **real** (two free providers). So are the failures: `docs/decisions.md`
+and `docs/kafka-101.md` record the problems that showed up, why they showed up and how they
+were fixed.
 
 ---
 
-## ¿Qué se demuestra aquí?
+## What is demonstrated here?
 
-| Concepto de Kafka | Dónde está en el proyecto |
+| Kafka concept | Where it lives in the project |
 | --- | --- |
-| Topics, particiones, clave y orden por partición | `market.ticks.raw` con 6 particiones y `key = símbolo` |
-| Commit manual de offsets y at-least-once | `ingestion-normalizer` (`AckMode.MANUAL`) |
-| Grupos de consumo y rebalanceo | Dos instancias del normalizer reparten 3/3 particiones |
-| Avro + Schema Registry y compatibilidad | 12 esquemas en `services/schemas/`, cambio compatible real (`v2` de `Order`/`Execution`) |
-| Evolución de esquemas sin romper consumidores | `scripts/schema-evolution-lab.sh`: veredictos BACKWARD y FORWARD medidos, rechazo real con `409` y los tres arreglos |
-| Kafka Streams con la API a pelo | Ventanas fijas y móviles, state stores, join stream-stream y stream-GlobalKTable |
-| Consultas interactivas al estado | `GET /analytics?symbol=...` lee el state store en caliente |
-| Exactly-once de punta a punta | Productor transaccional + `isolation.level=read_committed` |
-| Dead-letter topics y reintentos | `.DLT` en dos consumidores + `@RetryableTopic` con topics `.retry-*` |
-| Transactional outbox | Postgres y el topic compactado `audit.events` |
-| Réplicas, ISR y `min.insync.replicas` | Clúster KRaft de 3 brokers con 3 réplicas por partición |
-| Operación y observabilidad | kafka-exporter + Prometheus + Grafana provisionados desde el repo |
+| Topics, partitions, keys and per-partition ordering | `market.ticks.raw` with 6 partitions and `key = symbol` |
+| Manual offset commit and at-least-once | `ingestion-normalizer` (`AckMode.MANUAL`) |
+| Consumer groups and rebalancing | Two normalizer instances split the 3/3 partitions |
+| Avro + Schema Registry and compatibility | 12 schemas in `services/schemas/`, a real compatible change (`v2` of `Order`/`Execution`) |
+| Schema evolution without breaking consumers | `scripts/schema-evolution-lab.sh`: measured BACKWARD and FORWARD verdicts, a real `409` rejection and the three fixes |
+| Kafka Streams with the plain API | Tumbling and hopping windows, state stores, stream-stream and stream-GlobalKTable joins |
+| Interactive queries into state | `GET /analytics?symbol=...` reads the live state store |
+| End-to-end exactly-once | Transactional producer + `isolation.level=read_committed` |
+| Dead-letter topics and retries | `.DLT` on two consumers + `@RetryableTopic` with `.retry-*` topics |
+| Transactional outbox | Postgres and the compacted `audit.events` topic |
+| Replicas, ISR and `min.insync.replicas` | 3-broker KRaft cluster with 3 replicas per partition |
+| Operations and observability | kafka-exporter + Prometheus + Grafana, provisioned from this repository |
 
 ---
 
-## Arquitectura
+## Architecture
 
 ```
-   Twelve Data (EEUU, forex, oro, ETFs)   ┐
+   Twelve Data (US, FX, gold, ETFs)       ┐
    Alpha Vantage (Euronext, Shanghai)     ┘
-                    │  sondeo REST + paseo aleatorio para dar volumen
+                    │  REST polling + a random walk to add volume
                     ▼
         ┌───────────────────────┐        ┌──────────────────────┐
         │ market-data-simulator │───────►│   market.ticks.raw   │
-        │      (HTTP 8080)      │        │  6 particiones       │
+        │      (HTTP 8080)      │        │  6 partitions        │
         └───────────┬───────────┘        └──────────┬───────────┘
-                    │ órdenes simuladas             │  Avro
+                    │ simulated orders              │  Avro
                     ▼                               ▼
         ┌───────────────────────┐        ┌──────────────────────────┐
         │   orders.incoming     │        │  ingestion-normalizer    │
-        └───────────┬───────────┘        │  commit manual · valida  │
-                    │                    │  y republica canónico    │
+        └───────────┬───────────┘        │  manual commit, validates│
+                    │                    │  republishes canonical   │
                     │                    └────┬───────────────┬─────┘
-                    │                        │               │ inválidos → .DLT
+                    │                        │               │ invalid → .DLT
                     │              market.ticks.canonical    │
                     │                        │               │
                     │                        ▼               ▼
                     │            ┌────────────────────┐  market.fx.reference
-                    │            │  analytics-streams │  (compactado)
-                    │            │  ventanas · joins  │
+                    │            │  analytics-streams │  (compacted)
+                    │            │  windows · joins   │
                     │            │    HTTP 8085       │
                     │            └───┬────────────┬───┘
                     │                ▼            ▼
@@ -68,7 +65,7 @@ por qué aparecieron y cómo se arreglaron.
                     │                              (ASML NASDAQ vs AMS)
                     ▼
         ┌───────────────────────┐
-        │ order-matching-engine │  libro por instrumento, precio-tiempo
+        │ order-matching-engine │  per-instrument book, price-time priority
         │  exactly-once · .DLT  │
         └───────────┬───────────┘
                     ▼
@@ -78,137 +75,141 @@ por qué aparecieron y cómo se arreglaron.
       ▼             ▼                  ▼                    ▼
 ┌───────────────┐ ┌────────────────┐ ┌──────────────┐ ┌──────────────┐
 │ portfolio-risk│ │alerting-service│ │  audit-log   │ │  (grafana /  │
-│ KTable de     │ │ 3 reglas +     │ │ outbox en    │ │ prometheus)  │
-│ posiciones    │ │ punctuator     │ │ Postgres     │ │              │
+│ KTable of     │ │ 3 rules +      │ │ outbox in    │ │ prometheus)  │
+│ positions     │ │ punctuator     │ │ Postgres     │ │              │
 └───────┬───────┘ └───────┬────────┘ └──────┬───────┘ └──────────────┘
         ▼                 ▼                 ▼
  portfolio.updates   alerts.raised     audit.events
-                                      (compactado)
+                                      (compacted)
 ```
 
-Siete servicios Spring Boot, dos topics compactados, un clúster de tres brokers y una
-infraestructura que se levanta con un solo comando.
+Seven Spring Boot services, two compacted topics, a three-broker cluster and an
+infrastructure that comes up with a single command.
 
 ---
 
 ## Stack
 
-| Pieza | Versión | Por qué |
+| Piece | Version | Why |
 | --- | --- | --- |
-| Kafka (KRaft, sin ZooKeeper) | `apache/kafka:3.9.0` | Broker Apache puro, sin dependencias de Confluent |
-| Schema Registry | `confluentinc/cp-schema-registry:8.3.1` | Alineado con la librería Avro y el serializador |
-| Java | 21 (LTS) | Mismo lenguaje para la versión Spring y la futura Quarkus |
-| Spring Boot | 4.1.1 | Incluye la migración a Jackson 3 y `spring-boot-starter-kafka` |
-| Kafka Streams | API a pelo (`Topology`) | El objetivo es aprender la API, no esconderla |
-| Postgres | `postgres:16-alpine` | Patrón transactional outbox |
-| Observabilidad | kafka-exporter + Prometheus + Grafana | Panel provisionado desde el repo, sin clics |
-| Build | Maven multi-módulo | Un `pom.xml` padre y siete módulos en `services/` |
+| Kafka (KRaft mode, no ZooKeeper) | `apache/kafka:3.9.0` | Plain Apache broker, no Confluent dependencies |
+| Schema Registry | `confluentinc/cp-schema-registry:8.3.1` | Aligned with the Avro library and the serializer |
+| Java | 21 (LTS) | Same language for the Spring version and the future Quarkus one |
+| Spring Boot | 4.1.1 | Brings the Jackson 3 migration and `spring-boot-starter-kafka` |
+| Kafka Streams | Plain API (`Topology`) | The point is to learn the API, not to hide it |
+| Postgres | `postgres:16-alpine` | Transactional outbox pattern |
+| Observability | kafka-exporter + Prometheus + Grafana | Dashboard provisioned from the repo, no clicking |
+| Build | Maven multi-module | One parent `pom.xml` and seven modules under `services/` |
 
 ---
 
-## Cómo arrancarlo
+## How to run it
 
-Requisitos: Docker (o Docker Desktop con WSL2) y el devcontainer del repo, que es donde
-viven Java y Maven. **La infraestructura corre fuera del devcontainer**, en la red
-compartida `aggora-net`.
+Requirements: Docker (or Docker Desktop with WSL2) and the repository devcontainer, which is
+where Java and Maven live. **The infrastructure runs outside the devcontainer**, on the
+shared `aggora-net` network.
 
 ```bash
-# 0) Infraestructura: 3 brokers KRaft, Schema Registry, Postgres, Prometheus, Grafana
+# 0) Infrastructure: 3 KRaft brokers, Schema Registry, Postgres, Prometheus, Grafana
 docker network create aggora-net 2>/dev/null || true
 docker compose -f infra/docker-compose.yml up -d
 
-# 1) Compilar (dentro del devcontainer)
+# 1) Build (inside the devcontainer)
 cd /workspaces/aggora/services
 mvn -q -DskipTests package
 
-# 2) Arrancar los siete servicios en orden, esperando a que cada uno esté listo
-export TWELVEDATA_API_KEY=...      # EEUU, forex, oro y ETFs
-export ALPHAVANTAGE_API_KEY=...    # Euronext y Shanghai (plan gratuito: 25 peticiones/día)
+# 2) Start the seven services in order, waiting for each one to be ready
+export TWELVEDATA_API_KEY=...      # US, FX, gold and ETFs
+export ALPHAVANTAGE_API_KEY=...    # Euronext and Shanghai (free tier: 25 requests/day)
 cd /workspaces/aggora
-bash scripts/start-services.sh     # logs en /tmp/<servicio>.log
-bash scripts/stop-services.sh      # para pararlos todos
+bash scripts/start-services.sh     # logs in /tmp/<service>.log
+bash scripts/stop-services.sh      # stop them all
 
-# 3) Comprobación rápida
-curl -s localhost:8081/subjects                              # los contratos registrados
-curl -s 'localhost:8085/analytics?symbol=EUR/USD&minutes=3'   # consulta al state store
-open http://localhost:3000/d/aggora-kafka                     # panel de Kafka en Grafana
+# 3) Quick check
+curl -s localhost:8081/subjects                              # the registered contracts
+curl -s 'localhost:8085/analytics?symbol=EUR/USD&minutes=3'   # query the state store
+open http://localhost:3000/d/aggora-kafka                     # the Kafka dashboard in Grafana
 ```
 
-Las API keys son opcionales: sin ellas el simulador funciona igual, solo que con precios
-sintéticos. **Nunca se escriben en el repositorio**; se leen de variables de entorno.
+The API keys are optional: without them the simulator still runs, just with synthetic
+prices. They are **never written to the repository**; they are read from environment
+variables.
 
-- Kafka (desde fuera de Docker): `localhost:29092`, `29093`, `29094`
+- Kafka (from outside Docker): `localhost:29092`, `29093`, `29094`
 - Schema Registry: `localhost:8081` · Postgres: `localhost:5432` · Prometheus: `localhost:9090`
-- Grafana: `localhost:3000` (panel **Aggora — Kafka**, entrada anónima en dev) · métricas en crudo: `localhost:9308`
+- Grafana: `localhost:3000` (dashboard **Aggora — Kafka**, anonymous access in dev) · raw metrics: `localhost:9308`
 
 ---
 
-## Estado del proyecto
+## Project status
 
-| Fase | Contenido | Estado |
+| Phase | Content | Status |
 | --- | --- | --- |
-| 0 | Infraestructura local en Docker (KRaft + red `aggora-net`) | ✅ |
-| 1 | Simulador y normalizador; commit manual, rebalanceo y at-least-once | ✅ |
-| 2 | Avro y Schema Registry de punta a punta; topics explícitos | ✅ |
-| 3 | Kafka Streams: ventanas, estado, joins y consultas interactivas | ✅ |
-| 4 | Motor de cruce de órdenes con exactly-once transaccional | ✅ |
-| 5 | Cartera, alertas y auditoría con transactional outbox | ✅ |
-| 6 | Resiliencia y operación: DLT, reintentos, 3 brokers, Grafana | ✅ |
-| 7 | Laboratorio de evolución de esquemas: qué rompe, cómo se detecta y cómo se arregla | ✅ |
-| 8 | Port de los servicios a Quarkus + imagen nativa de GraalVM | 🔄 siguiente |
-| 9 | Informe comparativo Spring vs Quarkus con números | ⏳ |
+| 0 | Local infrastructure in Docker (KRaft + `aggora-net`) | ✅ |
+| 1 | Simulator and normalizer; manual commit, rebalancing and at-least-once | ✅ |
+| 2 | Avro and Schema Registry end to end; explicit topics | ✅ |
+| 3 | Kafka Streams: windows, state, joins and interactive queries | ✅ |
+| 4 | Order matching engine with transactional exactly-once | ✅ |
+| 5 | Portfolio, alerts and audit with a transactional outbox | ✅ |
+| 6 | Resilience and operations: DLT, retries, 3 brokers, Grafana | ✅ |
+| 7 | Schema evolution lab: what breaks, how it is caught and how it is fixed | ✅ |
+| 8 | Port of the services to Quarkus + GraalVM native image | 🔄 next |
+| 9 | Spring vs Quarkus comparison report, with numbers | ⏳ |
 
-**Verificado en vivo, no en teoría:** 41 tests unitarios en verde, 3 brokers con quórum
-KRaft y 3 réplicas por partición (con dos brokers caídos la escritura se detiene con
-`NOT_ENOUGH_REPLICAS` en vez de perder datos), exactly-once medido sobre el mismo topic
-(`read_committed` 121 mensajes frente a `read_uncommitted` 168), los seis veredictos de
-compatibilidad de esquemas medidos contra el registro en las dos direcciones, y 131.932
-eventos auditados que sobrevivieron a la reconstrucción completa del entorno.
+**Verified live, not in theory:** 41 unit tests green, 3 brokers with a KRaft quorum and 3
+replicas per partition (with two brokers down, writes stop with `NOT_ENOUGH_REPLICAS`
+instead of losing data), exactly-once measured on the same topic (`read_committed` 121
+messages versus `read_uncommitted` 168), all six schema compatibility verdicts measured
+against the registry in both directions, and 131,932 audited events that survived a complete
+rebuild of the environment.
 
 ---
 
-## Estructura del repositorio
+## Repository layout
 
 ```
-README.md                  portada del proyecto
-SPEC.md                    especificación original (inmutable)
-CONTRIBUTING.md            directrices de trabajo, convenciones y estado fase a fase
-docs/kafka-101.md          los conceptos de Kafka en lenguaje llano (17 capítulos)
-docs/decisions.md          registro de decisiones y de las desviaciones del spec
-docs/schema-evolution-lab.md  manual del laboratorio de evolución de esquemas
-infra/                     docker-compose, Prometheus, panel de Grafana
-scripts/                   arranque y parada de los servicios, y el laboratorio de esquemas
-services/                  Maven multi-módulo
-  schemas/                 los 12 contratos Avro (.avsc) de los que se generan las clases
-  market-data-simulator/   precios reales + órdenes simuladas
-  ingestion-normalizer/    validación y evento canónico
-  analytics-streams/       ventanas, joins y consultas interactivas
-  order-matching-engine/   libro de órdenes y exactly-once
-  portfolio-risk/          posiciones y P&L por cuenta
-  alerting-service/        reglas de anomalía
+README.md                  project front page
+SPEC.md                    the original spec (immutable)
+CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
+docs/kafka-101.md          the Kafka concepts in plain language (17 chapters)
+docs/decisions.md          decision log and the deliberate deviations from the spec
+docs/schema-evolution-lab.md  the schema evolution lab manual
+infra/                     docker-compose, Prometheus, Grafana dashboard
+scripts/                   start/stop of the services, plus the schema evolution lab
+services/                  Maven multi-module
+  schemas/                 the 12 Avro contracts (.avsc) the classes are generated from
+  market-data-simulator/   real prices + simulated orders
+  ingestion-normalizer/    validation and the canonical event
+  analytics-streams/       windows, joins and interactive queries
+  order-matching-engine/   order book and exactly-once
+  portfolio-risk/          positions and P&L per account
+  alerting-service/        anomaly rules
   audit-log/               transactional outbox
 ```
 
 ---
 
-## Documentación
+## Documentation
 
-- **[`docs/kafka-101.md`](docs/kafka-101.md)** — la guía de conceptos: qué es un topic, una
-  partición, un offset, un rebalanceo, una transacción… explicado con ejemplos de este
-  proyecto, sin dar por sabido nada.
-- **[`docs/decisions.md`](docs/decisions.md)** — por qué cada decisión se tomó así, incluidas
-  las desviaciones conscientes del spec y los errores que costaron tiempo.
-- **[`docs/schema-evolution-lab.md`](docs/schema-evolution-lab.md)** — qué se puede cambiar en
-  un contrato en marcha sin romper a nadie, con los veredictos que dio el registro y el
-  playbook para hacerlo en producción.
-- **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — cómo se trabaja en el repo, convenciones de red
-  y de nombres, y el detalle de verificación de cada fase.
+The deep-dive docs are written in **Spanish** — they are the author's learning material, and
+the reason the project exists. The README and the whole commit history are in English.
+
+- **[`docs/kafka-101.md`](docs/kafka-101.md)** — the concepts: what a topic, a partition, an
+  offset, a rebalance or a transaction is, explained with examples from this project and
+  assuming no prior knowledge.
+- **[`docs/decisions.md`](docs/decisions.md)** — why each decision was made, including the
+  deliberate deviations from the spec and the mistakes that cost time.
+- **[`docs/schema-evolution-lab.md`](docs/schema-evolution-lab.md)** — what can be changed in
+  a contract that is already running without breaking anyone, with the verdicts the registry
+  returned and the playbook for doing it in production.
+- **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — how work happens in this repo, the network and
+  naming conventions, and the verification detail for every phase.
 
 ---
 
-## Lo que este proyecto no es
+## What this project is not
 
-No es una plataforma de trading lista para producción: no hay autenticación, no hay
-ejecución real de órdenes ni conexión a un mercado de verdad, y las credenciales que
-aparecen son de desarrollo. Es un **laboratorio** cuyo objetivo es entender Kafka midiendo
-su comportamiento, incluidos sus modos de fallo.
+It is not a production-ready trading platform: there is no authentication, no real order
+execution and no connection to a real market, and the credentials you will find are for
+development. It is a **laboratory** whose goal is to understand Kafka by measuring its
+behaviour, failure modes included.
