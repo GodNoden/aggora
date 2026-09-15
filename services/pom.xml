@@ -29,6 +29,6 @@
 
   <modules>
     <module>spring</module>
-    <!-- <module>quarkus</module> Se anade cuando exista el port de la Fase 8. -->
+    <module>quarkus</module>
   </modules>
 </project>

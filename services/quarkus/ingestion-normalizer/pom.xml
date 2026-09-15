@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aggora</groupId>
+    <artifactId>aggora-quarkus-services</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ingestion-normalizer-quarkus</artifactId>
+  <name>ingestion-normalizer-quarkus</name>
+  <description>El normalizer de Aggora en Quarkus (mismo comportamiento, otra implementacion)</description>
+
+  <dependencies>
+    <!-- SmallRye Reactive Messaging con el conector de Kafka: es el equivalente al
+         @KafkaListener de Spring. El modelo es distinto: aqui un metodo anotado con
+         @Incoming recibe los mensajes, y los productores son canales (@Channel). -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-messaging-kafka</artifactId>
+    </dependency>
+
+    <!-- La extension de Quarkus para el Schema Registry de Confluent. Quarkus la EXIGE si
+         detecta clases de Avro de Confluent en el classpath: si no esta, el build falla con
+         "Confluent Avro classes detected, please use the quarkus-confluent-registry-avro
+         extension". Trae dentro quarkus-avro, que es lo que registra para reflexion las
+         clases generadas (van marcadas con @AvroGenerated): sin eso, un binario nativo
+         arranca y falla al deserializar. -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-confluent-registry-avro</artifactId>
+    </dependency>
+
+    <!-- Los MISMOS serializadores que la version Spring: asi los mensajes son byte a byte
+         del mismo formato y las dos implementaciones son intercambiables en el topic. -->
+    <dependency>
+      <groupId>io.confluent</groupId>
+      <artifactId>kafka-avro-serializer</artifactId>
+      <version>${confluent.version}</version>
+    </dependency>
+
+    <!-- Para los tests. Trae JUnit 5; no hace falta nada mas: las comprobaciones del
+         validador se hacen con los assert de JUnit y sin levantar el contexto. -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Genera las clases Java de los mismos .avsc que usa la version Spring. -->
+      <plugin>
+        <groupId>org.apache.avro</groupId>
+        <artifactId>avro-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>schema</goal>
+            </goals>
+            <configuration>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
+              <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
+              <stringType>String</stringType>
+              <enableDecimalLogicalType>true</enableDecimalLogicalType>
+              <dateTimeLogicalTypeImplementation>JSR310</dateTimeLogicalTypeImplementation>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Quarkus necesita que los tests usen su gestor de logs; sin esto, el primer
+           acceso a java.util.logging escupe un ERROR avisando de que el LogManager se
+           cargo antes de tiempo. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+
+      <!-- El plugin de Quarkus: genera el codigo de arranque y empaqueta el runner. -->
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.version}</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <goals>
+              <goal>build</goal>
+              <goal>generate-code</goal>
+              <goal>generate-code-tests</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

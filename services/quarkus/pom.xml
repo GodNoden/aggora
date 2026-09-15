@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Parent de los servicios de la implementacion QUARKUS (Fase 8).
+
+    NO hereda de spring-boot-starter-parent, a proposito: aqui manda el BOM de Quarkus. Los
+    dos padres cuelgan del agregador services/pom.xml, que no hereda de nadie.
+
+    Los contratos Avro son los mismos (services/schemas/*.avsc): cada implementacion genera
+    sus clases de los mismos ficheros, que es lo que hace que las dos hablen el mismo idioma
+    en el topic. Por eso el plugin de Avro se configura igual que en la version Spring, con
+    la misma version, y los serializadores son los de Confluent en las dos.
+  -->
+
+  <groupId>com.aggora</groupId>
+  <artifactId>aggora-quarkus-services</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>aggora-quarkus-services</name>
+  <description>Servicios de Aggora en Quarkus (misma plataforma, segunda implementacion)</description>
+
+  <modules>
+    <module>ingestion-normalizer</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Ultima version publicada en Maven Central en el momento de escribir esto (Fase 8). -->
+    <quarkus.version>3.39.3</quarkus.version>
+    <!-- Las mismas que la implementacion Spring: los mensajes tienen que ser identicos. -->
+    <confluent.version>8.3.1</confluent.version>
+    <avro.version>1.12.1</avro.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- El BOM de Quarkus decide TODAS las versiones: extensiones, Kafka, Jackson, JUnit... -->
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>${quarkus.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <repositories>
+    <repository>
+      <id>confluent</id>
+      <name>Confluent Maven Repository</name>
+      <url>https://packages.confluent.io/maven/</url>
+    </repository>
+  </repositories>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <!-- El plugin de Avro se declara en cada modulo que lo necesite, igual que en Spring. -->
+        <plugin>
+          <groupId>org.apache.avro</groupId>
+          <artifactId>avro-maven-plugin</artifactId>
+          <version>${avro.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+</project>
