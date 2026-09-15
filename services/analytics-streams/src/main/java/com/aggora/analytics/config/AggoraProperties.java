@@ -15,9 +15,27 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AggoraProperties(
         String schemaRegistryUrl,
         Topics topics,
-        Windows windows) {
+        Windows windows,
+        Arbitrage arbitrage) {
 
-    public record Topics(String ticksCanonical, String analytics) {
+    public record Topics(String ticksCanonical, String analytics, String arbitrage, String fxReference) {
+    }
+
+    /**
+     * La pareja de cotizaciones que se cruzan.
+     *
+     * @param rootSymbol      la empresa, sin sufijo de mercado (ASML)
+     * @param europeanSymbol  la cotizacion europea (ASML.AMS)
+     * @param americanSymbol  la cotizacion americana (ASML)
+     * @param quoteCurrency   divisa en la que se comparan los precios (USD)
+     * @param joinWindow      cuanto pueden separarse los dos precios para considerarlos comparables
+     */
+    public record Arbitrage(
+            String rootSymbol,
+            String europeanSymbol,
+            String americanSymbol,
+            String quoteCurrency,
+            Duration joinWindow) {
     }
 
     /**

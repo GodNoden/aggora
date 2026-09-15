@@ -21,4 +21,12 @@ public class KafkaTopicsConfig {
                 .replicas(1)
                 .build();
     }
+
+    @Bean
+    public NewTopic arbitrage(AggoraProperties props) {
+        return TopicBuilder.name(props.topics().arbitrage())
+                .partitions(6)
+                .replicas(1)
+                .build();
+    }
 }

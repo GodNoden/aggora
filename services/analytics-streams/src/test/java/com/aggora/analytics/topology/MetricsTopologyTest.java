@@ -45,9 +45,10 @@ class MetricsTopologyTest {
 
     private final AggoraProperties props = new AggoraProperties(
             "mock://aggora-test",
-            new AggoraProperties.Topics(CANONICAL, ANALYTICS),
+            new AggoraProperties.Topics(CANONICAL, ANALYTICS, "market.arbitrage", "market.fx.reference"),
             new AggoraProperties.Windows(
-                    Duration.ofSeconds(30), Duration.ofSeconds(60), Duration.ofSeconds(15), Duration.ofSeconds(5)));
+                    Duration.ofSeconds(30), Duration.ofSeconds(60), Duration.ofSeconds(15), Duration.ofSeconds(5)),
+            new AggoraProperties.Arbitrage("ASML", "ASML.AMS", "ASML", "USD", Duration.ofSeconds(5)));
 
     private final AvroSerdes serdes = new AvroSerdes("mock://aggora-test");
 
@@ -133,7 +134,7 @@ class MetricsTopologyTest {
         Properties config = new Properties();
         config.put(StreamsConfig.APPLICATION_ID_CONFIG, "analytics-streams-test");
         config.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:9092");
-        config.put(StreamsConfig.STATE_DIR_CONFIG, "/tmp/aggora-streams-test-state");
+        config.put(StreamsConfig.STATE_DIR_CONFIG, tempStateDir());
         return new TopologyTestDriver(builder.build(), config);
     }
 
@@ -153,6 +154,15 @@ class MetricsTopologyTest {
                 .filter(metrics -> metrics.getWindowKind() == kind)
                 .reduce((first, second) -> second)
                 .orElseThrow(() -> new AssertionError("no hay metricas de tipo " + kind));
+    }
+
+    /** Un directorio de estado nuevo por driver: si no, dos drivers del mismo test se pisan. */
+    private static String tempStateDir() {
+        try {
+            return java.nio.file.Files.createTempDirectory("aggora-streams-test").toString();
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("no se pudo crear el directorio de estado", ex);
+        }
     }
 
     private static CanonicalTick tick(String symbol, double price, int size, Instant when) {

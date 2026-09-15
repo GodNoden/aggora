@@ -53,6 +53,9 @@ public final class MetricsTopology {
     private static final Logger log = LoggerFactory.getLogger(MetricsTopology.class);
     private static final AtomicLong SAMPLED = new AtomicLong();
 
+    /** Nombre del state store de la ventana fija: lo usa la consulta interactiva. */
+    public static final String TUMBLING_STORE = "metrics-tumbling-store";
+
     private MetricsTopology() {
     }
 
@@ -107,8 +110,7 @@ public final class MetricsTopology {
                         MetricsTopology::emptyAccumulator,
                         (key, tick, accumulator) -> accumulate(accumulator, tick),
                         Materialized
-                                .<String, MetricsAccumulator, WindowStore<Bytes, byte[]>>as(
-                                        "metrics-" + kind.name().toLowerCase() + "-store")
+                                .<String, MetricsAccumulator, WindowStore<Bytes, byte[]>>as(storeName(kind))
                                 .withKeySerde(Serdes.String())
                                 .withValueSerde(serdes.accumulator()))
                 .toStream()
@@ -143,20 +145,38 @@ public final class MetricsTopology {
                 .build();
     }
 
+    /** Nombre del state store de cada tipo de ventana. */
+    public static String storeName(WindowKind kind) {
+        return "metrics-" + kind.name().toLowerCase() + "-store";
+    }
+
     private static SymbolMetrics toMetrics(Windowed<String> windowedKey,
                                            MetricsAccumulator accumulator,
                                            WindowKind kind) {
+        return toMetrics(windowedKey.key(), windowedKey.window().start(), windowedKey.window().end(), kind, accumulator);
+    }
+
+    /**
+     * Las mismas cuentas que hace la topologia, pero a partir de un acumulador suelto.
+     * Lo usa la consulta interactiva: lee el state store y aplica esta conversion, en
+     * vez de duplicar las formulas.
+     */
+    public static SymbolMetrics toMetrics(String symbol,
+                                          long windowStart,
+                                          long windowEnd,
+                                          WindowKind kind,
+                                          MetricsAccumulator accumulator) {
         long ticks = accumulator.getTicks();
         double mean = ticks == 0 ? 0.0 : accumulator.getSumPrice() / ticks;
         double variance = ticks == 0 ? 0.0 : accumulator.getSumSqPrice() / ticks - mean * mean;
         double vwap = accumulator.getVolume() == 0 ? 0.0 : accumulator.getSumPriceSize() / accumulator.getVolume();
 
         return SymbolMetrics.newBuilder()
-                .setSymbol(windowedKey.key())
+                .setSymbol(symbol)
                 .setCurrency(accumulator.getCurrency())
                 .setWindowKind(kind)
-                .setWindowStart(Instant.ofEpochMilli(windowedKey.window().start()))
-                .setWindowEnd(Instant.ofEpochMilli(windowedKey.window().end()))
+                .setWindowStart(Instant.ofEpochMilli(windowStart))
+                .setWindowEnd(Instant.ofEpochMilli(windowEnd))
                 .setTicks(ticks)
                 .setVolume(accumulator.getVolume())
                 .setVwap(decimal(vwap))

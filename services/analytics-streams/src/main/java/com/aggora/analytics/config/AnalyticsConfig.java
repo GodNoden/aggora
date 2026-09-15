@@ -1,5 +1,6 @@
 package com.aggora.analytics.config;
 
+import com.aggora.analytics.topology.ArbitrageTopology;
 import com.aggora.analytics.topology.MetricsTopology;
 import com.aggora.avro.analytics.SymbolMetrics;
 
@@ -27,6 +28,9 @@ public class AnalyticsConfig {
     public KStream<String, SymbolMetrics> analyticsTopology(StreamsBuilder builder,
                                                            AggoraProperties props,
                                                            AvroSerdes serdes) {
+        // Las dos topologias viven en la MISMA aplicacion de Kafka Streams (un solo
+        // StreamsBuilder), asi que comparten instancia, hilos y ciclo de vida.
+        ArbitrageTopology.apply(builder, props, serdes);
         return MetricsTopology.apply(builder, props, serdes);
     }
 }

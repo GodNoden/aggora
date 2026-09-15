@@ -40,6 +40,14 @@ public class AvroSerdes {
         return specific();
     }
 
+    public Serde<com.aggora.avro.reference.FxRate> fxRates() {
+        return specific();
+    }
+
+    public Serde<com.aggora.avro.analytics.ArbitrageSpread> spreads() {
+        return specific();
+    }
+
     private <T extends SpecificRecord> Serde<T> specific() {
         SpecificAvroSerde<T> serde = new SpecificAvroSerde<>();
         serde.configure(Map.of(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, schemaRegistryUrl), false);

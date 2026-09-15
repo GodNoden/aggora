@@ -1,3 +1,8 @@
+# El endpoint de consultas interactivas. Ojo con el puerto: el 8080 lo ocupa el
+# simulador, asi que aqui se usa otro.
+server:
+  port: 8085
+
 spring:
   application:
     name: analytics-streams
@@ -31,9 +36,21 @@ aggora:
   topics:
     ticks-canonical: market.ticks.canonical
     analytics: market.analytics
+    arbitrage: market.arbitrage
+    # Topic compactado con los tipos de cambio de referencia, que publica el normalizer.
+    fx-reference: market.fx.reference
   # Ventanas cortas para poder ver resultados mientras miras.
   windows:
     tumbling-size: 30s    # bloques fijos de 30 s, sin solape
     hopping-size: 60s     # ventana de 60 s...
     hopping-advance: 15s  # ...recalculada cada 15 s (se solapa con la anterior)
     grace: 5s             # margen antes de dar una ventana por cerrada
+  # La pareja de cotizaciones de la misma empresa que se cruzan para el spread.
+  arbitrage:
+    root-symbol: ASML
+    european-symbol: ASML.AMS
+    american-symbol: ASML
+    quote-currency: USD
+    # Los dos precios no llegan en el mismo milisegundo: hasta 5 s de separacion se
+    # consideran comparables.
+    join-window: 5s
