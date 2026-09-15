@@ -375,3 +375,53 @@ desde que arranca el proceso hasta que esta listo, que es lo que espera un conte
 Ojo con la fila de `alerting-service`: su contexto arranca en 0,338 s pero el proceso tarda
 2,342 s. Mirar solo la cifra de Spring ("Started X in N seconds") da una foto incompleta: lo
 que un contenedor espera de verdad es el tiempo del proceso.
+
+### Fase 8: el port de `ingestion-normalizer` a Quarkus
+
+El primer servicio portado es el normalizer, que es el mas sencillo (no tiene estado) y el que
+mas cosas toca: consume, valida, publica dos topics y descarta al DLT.
+
+| Decision | Por que |
+|---|---|
+| Cada implementacion lleva su sufijo en el `artifactId` (`ingestion-normalizer-spring` / `-quarkus`) | En un mismo reactor (y en el mismo `.m2`) no puede haber dos artefactos con el mismo `groupId:artifactId`: Maven se niega con "duplicated in the reactor". Las **carpetas** siguen llamandose igual (`services/spring/ingestion-normalizer` y `services/quarkus/ingestion-normalizer`); lo que cambia es el nombre del jar |
+| Mismos topics, mismo `group.id`, mismos serializadores de Confluent | Es lo que hace que el port sea **intercambiable**: se para uno y se arranca el otro y el pipeline ni se entera. Verificado en vivo (abajo) |
+| La validacion vive en `TickValidator`, separada del consumo | Son las mismas 7 reglas que en Spring y asi se pueden probar sin Kafka. Es la unica logica no trivial del servicio |
+| `quarkus-confluent-registry-avro` en vez de solo `quarkus-avro` | Quarkus **falla el build** si detecta clases de Avro de Confluent sin su extension: *"Confluent Avro classes detected, please use the quarkus-confluent-registry-avro extension"*. La extension trae dentro `quarkus-avro`, que es lo que registra para reflexion las clases generadas (`@AvroGenerated`) |
+| Los topics se crean con el `AdminClient` en un `@Observes StartupEvent` | En Quarkus no hay autoconfiguracion de topics (en Spring son beans `NewTopic`). Se mantiene la misma regla: cada topic lo declara quien escribe en el, y sin replicas explicitas para que mande el default del broker |
+| **Sin** health ni metricas en el normalizer de Quarkus | El de Spring tampoco las tiene (no tiene servidor web). Anadirlas solo a un lado falsearia justo lo que se quiere medir: el RSS y el arranque |
+
+Cuatro cosas de la API de SmallRye que cuestan un rato y quedan apuntadas:
+
+| Lo que se intento | Lo que pasa de verdad |
+|---|---|
+| `@Incoming` en un metodo `void` que recibe un `Message` | Quarkus no arranca: *"the method consumes a Message, so the returned type must be `CompletionStage<Void>` or `Uni<Void>`"*. Se devuelve el resultado del `ack()`: es el equivalente del `Acknowledgment` de Spring, pero devuelto |
+| `Emitter<T>.send(mensaje)` para enterarse de los fallos de publicacion | El `send(Message)` de MicroProfile devuelve `void`, asi que no hay donde enganchar el error. Se usa el `MutinyEmitter` de SmallRye, cuyo `sendMessage` devuelve un `Uni` |
+| `record.getOffset()` | `KafkaRecord` no tiene offset: viaja en `IncomingKafkaRecordMetadata`, que ademas vive en el paquete `...kafka.api`, no en `...kafka` |
+| El `ConsumerRebalanceListener` de Kafka | SmallRye tiene el suyo (`KafkaConsumerRebalanceListener`, que pasa el `Consumer` en cada evento) y es el que busca por el nombre del bean |
+
+**Verificado en vivo, y esto es lo importante:** se paro el normalizer de Spring, se arranco el
+de Quarkus con el MISMO topic de entrada, el MISMO `group.id` y los MISMOS topics de salida, y:
+
+- el motor de Quarkus arranco en **1,123 s** y el listener de rebalanceo conto las **6 particiones** asignadas;
+- los offsets de `market.ticks.canonical` siguieron subiendo y el lag del grupo se quedo en 0-2;
+- **`analytics-streams` (que sigue siendo el de Spring) respondio 200 con ventanas nuevas**:
+  las dos implementaciones son intercambiables en el topic porque comparten los contratos Avro;
+- con el simulador inyectando ticks invalidos (`AGGORA_INVALIDTICKEVERYN=300`), el port mando
+  **6 mensajes al DLT con la cabecera `x-dlt-reason: precio ausente o no positivo`**, el mismo
+  texto y la misma cabecera que la version Spring.
+
+Los primeros numeros de la comparacion, medidos con `scripts/measure-service.sh` el mismo dia y
+en la misma maquina, para el MISMO servicio:
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (proceso hasta listo) | 2,099 s | **1,123 s** |
+| Contexto / arranque propio | 1,725 s | — |
+| RSS en reposo | 428 MB | **332 MB** |
+| Hilos | 37 | 45 |
+| Descriptores abiertos | 24 | 89 |
+
+Quarkus arranca antes y ocupa menos, que es lo esperable cuando el trabajo de CDI se hace en el
+build en vez de en el arranque. Los 45 hilos y los 89 descriptores son el precio: el motor
+reactivo de Vert.x y SmallRye montan mas piezas moviles que un contenedor de Spring. La
+comparacion completa, con el binario nativo, va en la Fase 9.

@@ -255,10 +255,20 @@
     simulador 531 MB / 2,8 s · normalizer 441 MB / 2,0 s · analytics 516 MB / 3,2 s ·
     matching 297 MB / 2,6 s · portfolio 434 MB / 2,7 s · alerting 469 MB / 2,3 s ·
     audit 336 MB / 2,6 s. Son los números contra los que se medirá Quarkus en la Fase 9.
-- ⏭️ **Fase 8 (lo que queda)** — el port servicio a servicio con SmallRye Reactive Messaging y
-  la extensión de Kafka Streams, con `group.id` propio y topics de salida propios para poder
-  correr los dos stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec
-  pide *at least two*) con las medidas de arranque y memoria.
+- ✅ **Fase 8 — el primer servicio portado: `ingestion-normalizer` en Quarkus** (hecho).
+  `services/quarkus/ingestion-normalizer` con Quarkus 3.39.3 + SmallRye Reactive Messaging,
+  los MISMOS contratos Avro, los mismos topics, el mismo `group.id` y los mismos
+  serializadores de Confluent, así que **es intercambiable**: se para uno y arranca el otro y
+  el pipeline ni se entera. Verificado en vivo: el port tomó las 6 particiones (lo contó su
+  listener de rebalanceo), los offsets del canónico siguieron subiendo, **`analytics-streams`
+  (el de Spring) respondió 200 con ventanas nuevas** y los ticks inválidos fueron al DLT con
+  la misma cabecera `x-dlt-reason` y el mismo texto. 7 tests del validador en verde.
+  Primeros números, mismo servicio y misma máquina:
+  arranque **1,123 s (Quarkus)** frente a 2,099 s (Spring) y RSS **332 MB** frente a 428 MB.
+- ⏭️ **Fase 8 (lo que queda)** — los otros 6 servicios (los 3 de Kafka Streams con la extensión
+  de Quarkus), con `group.id` propio y topics de salida propios para poder correr los dos
+  stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec pide *at least
+  two*) con las medidas de arranque y memoria.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
@@ -471,6 +481,37 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
 # Y el evento canónico, que produce el normalizer
 docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.canonical
+```
+
+### Verificar la Fase 8 (el port de Quarkus)
+```bash
+# Compilar las dos implementaciones (el agregador las conoce a las dos)
+cd /workspaces/aggora/services
+mvn -q -DskipTests package
+
+# Parar el normalizer de Spring y arrancar el de Quarkus: mismos topics, mismo group.id
+pkill -TERM -f "target/ingestion-normalizer-spring"
+cd /workspaces/aggora/services/quarkus/ingestion-normalizer
+setsid java -jar target/quarkus-app/quarkus-run.jar > /tmp/ingestion-normalizer-quarkus.log 2>&1 &
+
+# Lo que hay que ver:
+#   [topics] market.ticks.canonical ya existe, no se toca
+#   [rebalance] ASIGNADAS 6 particiones: [...]
+#   [canonico] EUR/USD FX USD precio=... -> canonical(part=.. offset=..)
+grep -E "\[topics\]|\[rebalance\]|\[canonico\]" /tmp/ingestion-normalizer-quarkus.log | head
+
+# La prueba de fuego: la analitica de SPRING sigue funcionando con el normalizer de QUARKUS
+curl -s -o /dev/null -w "%{http_code}\n" 'localhost:8085/analytics?symbol=EUR/USD&minutes=3'
+
+# Y el camino de error: con el simulador inyectando ticks invalidos
+#   (arrancarlo con AGGORA_INVALIDTICKEVERYN=300), el DLT lleva el motivo en una cabecera
+docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic market.ticks.raw.DLT --from-beginning --max-messages 1 \
+  --property print.headers=true --property print.key=true
+
+# Para volver a la version Spring
+pkill -TERM -f "quarkus-app/quarkus-run.jar"
+bash scripts/start-services.sh
 ```
 
 ### Verificar la Fase 8 (arranque, memoria y salud)
