@@ -1,0 +1,24 @@
+# La cartera en Quarkus (Fase 8).
+#
+# El bloque `aggora:` es EL MISMO que el de la version Spring. Lo que cambia es como se monta el
+# motor (ver application.properties): @Produce Topology en vez de @EnableKafkaStreams.
+#
+# Este servicio NO tiene servidor web en ninguna de las dos implementaciones (es un motor de
+# Streams y nada mas), asi que aqui no hay metricas ni sonda: anadirlas a un solo lado falsearia
+# la comparacion de memoria.
+
+quarkus:
+  application:
+    name: portfolio-risk
+  banner:
+    enabled: false
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    executions: orders.executions
+    portfolio-updates: portfolio.updates
+  # Limite de exposicion por posicion: si se supera, se marca marginBreach y
+  # alerting-service levanta la alerta. En un sistema real seria por cuenta y por
+  # instrumento, con reglas de margen de verdad.
+  margin-limit: 500000

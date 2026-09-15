@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aggora</groupId>
+    <artifactId>aggora-quarkus-services</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>portfolio-risk-quarkus</artifactId>
+  <name>portfolio-risk-quarkus</name>
+  <description>La analitica de Aggora en Quarkus (Kafka Streams con la extension de Quarkus)</description>
+
+  <dependencies>
+    <!-- La extension de Kafka Streams: en vez de montar el motor a mano, se produce un
+         Topology y Quarkus se encarga de configurarlo, arrancarlo y pararlo. -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-kafka-streams</artifactId>
+    </dependency>
+
+    <!-- Igual que en las otras dos implementaciones: la extension de Confluent (que trae
+         quarkus-avro para la reflexion de las clases generadas). -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-confluent-registry-avro</artifactId>
+    </dependency>
+
+    <!-- La configuracion en YAML, para reutilizar el MISMO bloque `aggora:` que la version
+         Spring (topics y limite de margen). -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-config-yaml</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>io.confluent</groupId>
+      <artifactId>kafka-avro-serializer</artifactId>
+      <version>${confluent.version}</version>
+    </dependency>
+    <!-- Serdes Avro especificos para Kafka Streams (SpecificAvroSerde): no vienen en
+         kafka-avro-serializer, son otro artefacto de Confluent. -->
+    <dependency>
+      <groupId>io.confluent</groupId>
+      <artifactId>kafka-streams-avro-serde</artifactId>
+      <version>${confluent.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- TopologyTestDriver: probar la topologia sin broker ni registry. La version la
+         decide el BOM de Quarkus, que es quien trae kafka-streams. -->
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-streams-test-utils</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.avro</groupId>
+        <artifactId>avro-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>schema</goal>
+            </goals>
+            <configuration>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
+              <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
+              <stringType>String</stringType>
+              <enableDecimalLogicalType>true</enableDecimalLogicalType>
+              <dateTimeLogicalTypeImplementation>JSR310</dateTimeLogicalTypeImplementation>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+            <!-- Avro 1.12.2 (el que arrastra el BOM de Quarkus; la version Spring usa 1.12.1)
+                 ENCIENDE el validador de clases de Avro. Los tests de topologia no levantan
+                 Quarkus, asi que aqui no actua quarkus.avro.trusted-packages y hay que decirlo
+                 con la propiedad del propio Avro. Sin esto, SpecificAvroSerde falla al
+                 serializar: "Forbidden com.aggora.avro.canonical.CanonicalTick! This class is
+                 not trusted to be included in Avro schemas". -->
+            <org.apache.avro.SERIALIZABLE_PACKAGES>com.aggora.avro</org.apache.avro.SERIALIZABLE_PACKAGES>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.version}</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <goals>
+              <goal>build</goal>
+              <goal>generate-code</goal>
+              <goal>generate-code-tests</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

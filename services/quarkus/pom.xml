@@ -27,6 +27,7 @@
     <module>ingestion-normalizer</module>
     <module>market-data-simulator</module>
     <module>analytics-streams</module>
+    <module>portfolio-risk</module>
   </modules>
 
   <properties>
