@@ -317,3 +317,32 @@ SPRING_KAFKA_CONSUMER_MAXPOLLRECORDS=10 \
 | Evolución de esquema rota a propósito | 7 |
 | Todo otra vez en Quarkus + native image | 8 |
 | Informe comparativo | 9 |
+
+---
+
+## 9. La Fase 2 en la práctica: el contrato deja de ser adivinanza
+
+En la Fase 1 cada servicio adivinaba qué era cada campo del JSON. En la Fase 2 el
+contrato está **declarado y registrado**, y eso cambia cuatro cosas visibles:
+
+1. **Los mensajes ya no son legibles a ojo.** Un mensaje empieza ahora con
+   `[1 byte 0x00][4 bytes de ID de esquema]` y sigue con datos binarios. Al mirar el
+   topic con `kafka-console-consumer` verás caracteres raros: es lo normal. Para
+   leerlo hay que tener el esquema, y para eso está el registry.
+2. **El registry es la fuente de verdad.** `curl localhost:8081/subjects` lista los
+   contratos, `/subjects/<topic>-value/versions` da sus versiones e IDs, y
+   `/config` dice el modo de compatibilidad (en el nuestro, `BACKWARD`).
+3. **Los tipos están declarados.** El precio viaja como decimal (nunca coma
+   flotante: en dinero 0.1 + 0.2 no es 0.3) y la fecha como `timestamp-millis`, que
+   es lo que permite que el consumidor reciba un `Instant` de verdad en lugar del
+   número opaco de la Fase 1.
+4. **Un esquema nuevo se valida contra el anterior.** Si alguien cambia el contrato
+   de forma que rompa a los consumidores, el registry **rechaza el registro** y el
+   fallo aparece al desplegar, no tres servicios más adelante.
+
+Y el matiz que más cuesta interiorizar: **el mismo dato puede tener dos contratos
+distintos**. El normalizer lee tick crudo (subject `market.ticks.raw-value`) y
+publica evento canónico (subject `market.ticks.canonical-value`). Son dos subjects
+independientes: el canónico puede cambiar sin tocar el crudo y viceversa. Esa es la
+razón de que el normalizer construya un objeto nuevo en vez de reenviar el que leyó.
+

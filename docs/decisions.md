@@ -140,3 +140,31 @@ descartes y 0 errores.
   versiones de distancia.
 - Republicación del evento canónico a `market.ticks.canonical` (el normalizer pasa a
   ser consumidor **y** productor, como dice el spec).
+
+### Fase 2 completada: cómo quedó y qué aprendimos
+
+| Decisión | Por qué |
+|---|---|
+| Esquemas en **`services/schemas/`** (una sola copia) | Los `.avsc` son la fuente de verdad del contrato y de ellos se generan las clases; dos copias acabarían divergiendo. La verdad compartida en runtime es el registry, no el fichero |
+| **Namespace distinto** para el canónico (`com.aggora.avro.canonical`) | Los dos esquemas definen enums con los mismos nombres (`AssetClass`, `Exchange`, `TickSource`). En el mismo paquete chocarían al generar las clases |
+| `price` como **decimal lógico** y `eventTime` como **timestamp-millis** | En dinero no se usa coma flotante, y el `logicalType` es justo lo que declara que ese `long` es una fecha. Con el plugin configurado (`enableDecimalLogicalType`, JSR310) Avro genera `BigDecimal` e `Instant` |
+| El normalizer **republica el canónico** con un objeto nuevo | Los dos subjects evolucionan por separado: el canónico puede ganar campos sin tocar el contrato del crudo |
+| `schema.registry.url` en `spring.kafka.properties` | Es común a productor y consumidor, así que se declara una vez |
+
+Dos incidentes que valen más que la teoría:
+
+1. **La autocreación de topics es una trampa.** Encontré un topic `market.ticks.raw`
+   con **1 partición** que nadie había declarado: un `kafka-console-consumer` mío que
+   quedó vivo pedía metadatos del topic y el broker lo creaba solo. Se apagó con
+   `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`: un typo en un nombre debe fallar, no
+   crear un topic silencioso con las particiones equivocadas.
+2. **Con la autocreación apagada, los topics internos hay que declararlos.**
+   El Schema Registry no crea su propio `_schemas`, así que se quedó atascado
+   (su consumidor interno en bucle con `unknown topic or partition`) y el
+   **productor de la aplicación se quedó colgado**: el serializador Avro se ejecuta
+   en el mismo hilo que hace el `send`, así que un registry que no responde bloquea
+   la producción entera, sin errores en el log. Se arregla con el servicio
+   `kafka-init`, que declara `_schemas` (1 partición, `cleanup.policy=compact`).
+   Lección para producción: los timeouts del cliente del registry importan tanto
+   como los del broker.
+

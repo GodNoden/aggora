@@ -90,11 +90,19 @@
   así que se usa el ETF `USO` (precio vivo, pero **es el ETF, no el barril**).
   Detalle en `docs/decisions.md`. Las keys van en `TWELVEDATA_API_KEY` y
   `ALPHAVANTAGE_API_KEY`, y **no se escriben en ningún fichero del repo**.
-- 🔄 **Fase 2 (en curso)** — Schema Registry ya levantado y verificado
-  (`confluentinc/cp-schema-registry:7.6.1`, responde por `localhost:8081` y por
-  `schema-registry:8081`, `/config` → `BACKWARD`). Formato elegido: **Avro**.
-  Pendiente: los `.avsc` de tick y canónico, el código y la republicación a
-  `market.ticks.canonical`.
+- ✅ **Fase 2** — Avro + Schema Registry de punta a punta. Imagen subida a
+  `confluentinc/cp-schema-registry:8.3.1` (alineada con la librería Avro 8.3.1),
+  esquemas en `services/schemas/*.avsc` de los que se **generan** las clases Java
+  (no se escriben a mano), y el normalizer ya no es solo consumidor: valida el tick
+  Avro y **republica el evento canónico** con su propio esquema.
+  Verificado: 2 subjects (`market.ticks.raw-value`, `market.ticks.canonical-value`),
+  mensajes binarios en el crudo, 7.000 mensajes procesados con 0 descartes y 0
+  errores, y lag 0. El `eventTime` ya viaja como fecha declarada (adiós al número
+  opaco de la Fase 1).
+- 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
+  (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
+  partición) y un servicio `kafka-init` que crea los topics internos que no declara
+  el código (`_schemas`). Las dos cosas tienen su porqué en `docs/decisions.md`.
 - ✅ **Migración a Spring Boot 4.1.1** — pedida por el usuario por el aviso de
   soporte OSS. Verificado: 17 tests en verde, los dos servicios en marcha y 63.500
   mensajes procesados. Lo que cambió está en `docs/decisions.md`; en resumen:
@@ -157,6 +165,23 @@ sea suyo.
 **Regla para agentes:** compilar y ejecutar SIEMPRE con `docker exec -u vscode`
 (el usuario del devcontainer), nunca como root. Si se compila como root, los
 `target/` quedan sin permiso de escritura para el usuario y el IDE falla.
+
+### Verificar la Fase 2 (con el pipeline arrancado)
+```bash
+# Los esquemas que se han registrado, con su versión e ID
+curl -s localhost:8081/subjects
+curl -s localhost:8081/subjects/market.ticks.raw-value/versions
+curl -s localhost:8081/config
+
+# El topic ya NO es texto legible: byte mágico 0x00 + 4 bytes de ID de esquema + Avro
+docker exec aggora-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic market.ticks.raw \
+  --from-beginning --max-messages 1 --timeout-ms 8000 | head -c 60 | cat -v
+
+# Y el evento canónico, que produce el normalizer
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic market.ticks.canonical
+```
 
 ## Decisiones tomadas (link a docs/decisions.md para el detalle)
 - Kafka en modo KRaft (sin Zookeeper) — más simple, es lo moderno.
