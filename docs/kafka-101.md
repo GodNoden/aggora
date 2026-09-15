@@ -346,3 +346,65 @@ publica evento canónico (subject `market.ticks.canonical-value`). Son dos subje
 independientes: el canónico puede cambiar sin tocar el crudo y viceversa. Esa es la
 razón de que el normalizer construya un objeto nuevo en vez de reenviar el que leyó.
 
+---
+
+## 10. La Fase 3 en la práctica: ventanas, estado y joins
+
+Hasta ahora cada mensaje se procesaba por separado. La Fase 3 va de calculos que
+necesitan **recordar** cosas: una media movil no existe sin memoria.
+
+**KStream y KTable no son lo mismo.** Un `KStream` es una secuencia de hechos: dos
+ticks de AAPL son dos hechos. Una `KTable` es una tabla que se actualiza: de esos dos
+ticks se queda con el ultimo valor por clave. Uno es la pelicula; la otra, la foto.
+
+**Una ventana es "de que trozo de tiempo quiero los datos".** Tres tipos:
+
+| Tipo | Como es | Para que |
+|---|---|---|
+| **Tumbling** | bloques fijos que no se solapan (10:00:00-10:00:30, luego 10:00:30-10:01:00) | una foto por bloque: el VWAP de cada medio minuto |
+| **Hopping** | bloques que se solapan (ventana de 60 s recalculada cada 15 s) | una media que se refresca sin esperar al cierre |
+| **Session** | bloques separados por huecos de inactividad | sesiones de un usuario; en mercado continuo se usa poco |
+
+El **grace** es el margen que se espera antes de dar una ventana por cerrada: los datos
+pueden llegar desordenados o tarde, y ese margen decide cuanto se les espera.
+
+**El estado vive en un state store.** Kafka Streams guarda lo que necesita recordar
+(sumas, volumen, ultimo precio) en disco con RocksDB y mantiene una copia en un topic
+interno de Kafka, el **changelog**. Por eso un reinicio no pierde la cuenta: si el
+estado local desaparece, se reconstruye desde el changelog. Esos topics se crean solos
+(`analytics-streams-metrics-tumbling-store-changelog`), y son la razon de que una
+agregacion con ventana sobreviva a un despliegue.
+
+**Los dos joins que se practican aqui:**
+
+1. **Stream-stream**: cruzar las dos cotizaciones de la misma empresa. Los dos precios
+   no llegan en el mismo milisegundo, asi que el join lleva **ventana de tiempo**. Para
+   que funcione, las dos patas tienen que caer en la MISMA particion: se re-clavan por
+   el simbolo raiz (`ASML`) y Kafka Streams inserta solo el topic de reparticion.
+2. **Stream-table (global)**: convertir el precio europeo a dolares con el ultimo tipo
+   de cambio. Una **GlobalKTable** es una copia entera de la tabla en cada instancia
+   (aqui son dos pares de divisas, cabe de sobra), asi que **no** hace falta que la
+   clave del stream coincida con la de la tabla: la clave de busqueda se calcula del
+   propio registro. Es el patron para enriquecer con datos de referencia.
+
+El tipo de cambio se guarda en `market.fx.reference`, un topic **compactado**: a quien
+lo lee le interesa el ultimo valor de cada par, no el historial, y Kafka se queda con
+una entrada por clave.
+
+**Consultas interactivas**: como el estado esta en disco y en memoria, se le puede
+preguntar a la aplicacion en marcha por el sin pasar por Kafka:
+
+```bash
+curl -s "localhost:8085/analytics?symbol=EUR/USD&minutes=3"
+```
+
+Devuelve las ultimas ventanas con su VWAP, media y volatilidad, calculadas de verdad.
+El limite: cada instancia solo conoce SUS particiones, asi que con varios despliegues
+habria que preguntar a la que tiene la clave (o a todas).
+
+**Un detalle de mercado de verdad**: el spread de ASML solo existe cuando **los dos
+mercados estan abiertos a la vez** (13:30-15:30 UTC, el solape de NASDAQ y Euronext).
+Fuera de esa franja, una de las dos patas no cotiza y no hay nada que cruzar. Que el
+sistema no invente un spread a partir de un precio de hace horas es la respuesta
+correcta, no un fallo.
+

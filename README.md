@@ -99,15 +99,20 @@
   mensajes binarios en el crudo, 7.000 mensajes procesados con 0 descartes y 0
   errores, y lag 0. El `eventTime` ya viaja como fecha declarada (adiós al número
   opaco de la Fase 1).
-- 🔄 **Fase 3 (en curso)** — Y ya estan las **métricas por ventana**: el modulo
-  `analytics-streams` (Kafka Streams con la API a pelo) lee `market.ticks.canonical` y
-  calcula **VWAP, media y volatilidad** con **dos tipos de ventana** (fija de 30 s y
-  movil de 60 s recalculada cada 15 s) hacia `market.analytics`. Los agregados viven en
-  **state stores** con su topic de changelog, asi que sobreviven a un reinicio.
-  Verificado: 3 tests de la topologia con `TopologyTestDriver` (sin broker), servicio
-  arrancado y metricas reales publicandose.
-  **Pendiente de la fase**: el **spread de arbitraje de ASML** (join entre sus dos
-  cotizaciones, con conversion EUR->USD) y las **consultas interactivas** al state store.
+- ✅ **Fase 3** — Kafka Streams con la API a pelo en el modulo `analytics-streams`:
+  - **Metricas por ventana**: VWAP, media y volatilidad de `market.ticks.canonical` con
+    **dos tipos de ventana** (fija de 30 s y movil de 60 s/15 s) hacia `market.analytics`,
+    con **state stores** y sus topics de changelog (el estado sobrevive a un reinicio).
+  - **Spread de arbitraje** de las dos cotizaciones de ASML: join **stream-stream** con
+    ventana de 5 s para cruzar los dos precios, y join **stream-globalTable** para
+    convertir el precio europeo a dolares con el tipo de cambio de `market.fx.reference`
+    (topic compactado). Salida en `market.arbitrage`.
+  - **Consultas interactivas**: `GET /analytics?symbol=EUR/USD&minutes=3` (puerto 8085)
+    lee el state store en marcha y devuelve las ultimas ventanas ya calculadas.
+  Verificado: **6 tests** de topologia con `TopologyTestDriver` y registry `mock://`
+  (sin broker), metricas y consultas funcionando en vivo. El spread en vivo solo
+  aparece en el solape NASDAQ+Euronext (13:30-15:30 UTC), que es cuando los dos
+  mercados cotizan a la vez.
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -191,6 +196,15 @@ sea suyo.
 
 ### Verificar la Fase 3 (analitica)
 ```bash
+# Consulta interactiva al state store en marcha (puerto 8085)
+curl -s "localhost:8085/analytics?symbol=EUR/USD&minutes=3"
+
+# Los topics nuevos de la fase
+docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --describe --topic market.fx.reference   # compactado
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic market.arbitrage
+```
 # Arrancar el tercer servicio (necesita el pipeline de la Fase 1-2 en marcha)
 cd /workspaces/aggora/services/analytics-streams
 java -jar target/analytics-streams-0.1.0-SNAPSHOT.jar

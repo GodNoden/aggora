@@ -181,3 +181,15 @@ Dos incidentes que valen más que la teoría:
 | Los tests de la topología usan `TopologyTestDriver` y una URL **`mock://`** del registry | Se prueba la aritmética (VWAP, media, volatilidad, solape de ventanas) sin broker, sin registry y sin esperar ventanas de verdad. 3 tests que fallan si la fórmula se rompe |
 | El topic de salida lo declara el servicio, los internos los crea Kafka Streams | Consistente con la regla del proyecto: cada topic lo declara quien escribe. Los changelog y de repartición los crea Streams por su cuenta con el AdminClient |
 
+### Fase 3 (continuacion): spread de arbitraje y consultas interactivas
+
+| Decisión | Por qué |
+|---|---|
+| El tipo de cambio va a un topic **compactado** (`market.fx.reference`) y se lee como **GlobalKTable** | Es dato de referencia: al leerlo interesa el último valor por par, no el historial. La GlobalKTable se copia entera en cada instancia (son dos pares), así que **no** hay que co-particionar: la clave de búsqueda se calcula del propio registro. Es el patrón para enriquecer un stream con referencia |
+| Conversión de divisa **antes** del cruce de precios | Comparar euros con dólares no significa nada. El precio europeo se convierte a USD con el tipo de cambio de referencia y el contrato `ArbitrageSpread` queda todo en USD. El precio original en EUR sigue en `market.ticks.canonical` |
+| El join stream-stream lleva **ventana de 5 s** | Los dos mercados no publican en el mismo milisegundo. La ventana es lo que permite emparejar dos precios que sí son comparables, y evita cruzar un precio con otro de hace horas |
+| `StreamJoined.with(...)` con los serdes explícitos | El join guarda la pata izquierda en un state store con ventana; sin decirle los serdes, Kafka Streams falla al arrancar. Costó un test en rojo |
+| El endpoint devuelve un **DTO propio**, no la clase Avro | Jackson intenta serializar también el `getSchema()` del registro Avro y revienta (visto en vivo: `HttpMessageNotWritableException`). Además, la API HTTP no debe quedar atada al contrato de Kafka, que evoluciona aparte |
+| El símbolo va como **parámetro de consulta**, no en la ruta | Los pares de divisas llevan barra (`EUR/USD`) y la barra parte la URL en dos segmentos: `/analytics/EUR/USD` daba 404 |
+| Puerto **8085** para la API de analítica | El 8080 lo ocupa el simulador y el 8081 el registry. Ojo: `server.port` va en la RAÍZ del yml, no dentro de `spring:` (lo puse mal y Tomcat se fue al 8080) |
+
