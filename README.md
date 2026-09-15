@@ -153,8 +153,8 @@ variables.
 | 5 | Portfolio, alerts and audit with a transactional outbox | ✅ |
 | 6 | Resilience and operations: DLT, retries, 3 brokers, Grafana | ✅ |
 | 7 | Schema evolution lab: what breaks, how it is caught and how it is fixed | ✅ |
-| 8 | Port of the services to Quarkus + GraalVM native image | 🔄 in progress (all 7 services ported; native image and the comparison report pending) |
-| 9 | Spring vs Quarkus comparison report, with numbers | ⏳ |
+| 8 | Port of the services to Quarkus + GraalVM native image | ✅ (all 7 services ported and measured; native image pending, recipe in `scripts/build-native.sh`) |
+| 9 | [Spring vs Quarkus comparison report](SPRING_VS_QUARKUS.md), with numbers | ✅ |
 
 **Verified live, not in theory:** 41 unit tests green, 3 brokers with a KRaft quorum and 3
 replicas per partition (with two brokers down, writes stop with `NOT_ENOUGH_REPLICAS`
@@ -203,6 +203,8 @@ the reason the project exists. The README and the whole commit history are in En
 - **[`docs/schema-evolution-lab.md`](docs/schema-evolution-lab.md)** — what can be changed in
   a contract that is already running without breaking anyone, with the verdicts the registry
   returned and the playbook for doing it in production.
+- **[`SPRING_VS_QUARKUS.md`](SPRING_VS_QUARKUS.md)** — the comparison report: startup and memory
+  per service, imperative vs reactive, the gotchas and an honest recommendation.
 - **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — how work happens in this repo, the network and
   naming conventions, and the verification detail for every phase.
 

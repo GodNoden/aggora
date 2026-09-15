@@ -330,6 +330,8 @@
   seguro de tipos). Verificado en vivo: creó las tablas, consumió los tres topics, **190.628 eventos
   auditados** y la outbox drenándose de verdad (**190.622 publicados, 6 pendientes**), sin errores.
   Números: arranque **1,468 s** frente a 2,157 s y RSS **296 MB** frente a 354 MB.
+- ✅ **Fase 9 — el informe comparativo** (hecho): `SPRING_VS_QUARKUS.md`, con los números de los siete
+  servicios, el modelo imperativo frente al reactivo, los tropiezos y una recomendación honesta.
 - ⏭️ **Fase 8 (lo que queda)** — la **imagen nativa de GraalVM** para dos servicios y las medidas, y
   correr los dos stacks a la vez (con `group.id` y topics de salida propios).
   El nativo **intentado y bloqueado en esta máquina**: la receta corregida está en
