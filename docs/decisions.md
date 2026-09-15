@@ -620,3 +620,36 @@ límite de exposición).
 | RSS en reposo | 383 MB | **256 MB** |
 | Hilos | 39 | 43 |
 | Descriptores abiertos | 31 | 91 |
+
+### Fase 8: el port de `audit-log` a Quarkus (el outbox con Postgres)
+
+El séptimo y último servicio, y la única comparación que toca base de datos.
+
+| | Spring Boot | Quarkus |
+|---|---|---|
+| **Acceso a datos** | `JdbcTemplate` con el SQL a pelo | **JDBC a pelo** sobre el `DataSource` de Agroal: la misma idea, sin capa intermedia (la alternativa idiomática sería Panache/Hibernate, pero habría cambiado el patrón que se está comparando) |
+| **La transacción del outbox** | `@Transactional` de Spring | `@Transactional` de Jakarta, con Narayana (viene con el JDBC de Quarkus) |
+| **El esquema** | `spring.sql.init.mode=always` ejecuta `schema.sql` | Quarkus no ejecuta el schema: se lee el **mismo `schema.sql`** y se ejecuta al arrancar (todo es `create ... if not exists`, así que es idempotente). El sitio bueno sería Flyway |
+| **El consumidor** | Un `@KafkaListener` con los tres topics y el valor como `Object` | **Tres canales tipados** (`@Incoming("executions")`, `"portfolio-updates"`, `"alerts"`), cada uno con su tipo Avro, delegando en un método común: aquí Quarkus obliga a algo más seguro de tipos |
+| **El publicador** | `@Scheduled(fixedDelayString=...)` | `@Scheduled(every=...)` + `SKIP` + `ApplicationNotRunning` |
+
+| Decision | Por que |
+|---|---|
+| El evento y el recado van en la **misma transacción** | Es el patrón entero: si se cae entre las dos escrituras, no queda ni el evento ni el recado. Con JDBC a pelo se consigue con `@Transactional` |
+| La idempotencia la da el **índice único** `(source_topic, source_partition, source_offset)`, no el código | Si Kafka reentrega, la inserción no se repite. Lo mismo que en Spring, y por eso el `insert ... on conflict do nothing` se copia tal cual |
+| El contador de pendientes se lee **antes** de publicar | El envío es asíncrono: contar después da los que aún no se han marcado y parece que la outbox no se vacía (pasó al probarlo, y el log lo decía mal) |
+
+**Verificado en vivo:** el port creó las tablas, consumió los tres topics y **auditó 190.628 eventos**,
+con la bandeja de salida drenándose de verdad: **190.622 publicados** y **6 pendientes** (los de la
+última vuelta del publicador) ✅, sin un solo error en el log.
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (proceso hasta listo) | 2,157 s | **1,468 s** |
+| RSS en reposo | 354 MB | **296 MB** |
+| Hilos | 49 | 58 |
+| Descriptores abiertos | 57 | 100 |
+
+Con esto **los siete servicios están portados**. Lo que queda de la fase es lo que pide el spec y no
+es copiar código: correr los dos stacks a la vez (con `group.id` y topics de salida propios), la
+**imagen nativa de GraalVM** para dos servicios y las medidas que van al informe de la Fase 9.

@@ -322,10 +322,18 @@
   levantó los dos tipos de alerta, `[alerta] pico de precio en USD/CNY` y
   `[alerta] CRITICAL MARGIN_BREACH`. Números: arranque **1,073 s** frente a 1,870 s y RSS **256 MB**
   frente a 383 MB.
-- ⏭️ **Fase 8 (lo que queda)** — `audit-log` (el outbox con Postgres, la única comparación que toca
-  base de datos: JDBC/Panache en vez de `JdbcTemplate`). Después, `group.id` y topics de salida
-  propios para correr los dos stacks a la vez y la imagen nativa de GraalVM para dos servicios (el
-  spec pide *at least two*) con las medidas de arranque y memoria.
+- ✅ **Fase 8 — séptimo servicio portado: `audit-log`** (hecho), y con este **están los siete**. El
+  outbox con Postgres: JDBC a pelo sobre el `DataSource` de Agroal y `@Transactional` de Jakarta con
+  Narayana (el equivalente de `JdbcTemplate` + `@Transactional` de Spring), el **mismo `schema.sql`**
+  ejecutado al arrancar (Quarkus no lo hace solo; el sitio bueno sería Flyway) y **tres canales
+  tipados** en vez de un `@KafkaListener` con el valor como `Object` (aquí Quarkus obliga a algo más
+  seguro de tipos). Verificado en vivo: creó las tablas, consumió los tres topics, **190.628 eventos
+  auditados** y la outbox drenándose de verdad (**190.622 publicados, 6 pendientes**), sin errores.
+  Números: arranque **1,468 s** frente a 2,157 s y RSS **296 MB** frente a 354 MB.
+- ⏭️ **Fase 8 (lo que queda)** — lo que pide el spec y no es copiar código: correr los dos stacks a
+  la vez (con `group.id` y topics de salida propios), la **imagen nativa de GraalVM** para dos
+  servicios (*at least two*) con las medidas de arranque y memoria, y el cierre con el informe de la
+  Fase 9.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
