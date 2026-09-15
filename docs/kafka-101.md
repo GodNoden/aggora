@@ -845,3 +845,83 @@ saca igual para las dos implementaciones: arranque del log, RSS de `ps`, hilos y
 de `/proc`. El RSS es la cifra importante porque una **imagen nativa no tiene heap de la JVM**:
 las métricas `jvm_*` sirven para mirar la JVM por dentro, no para comparar una JVM con un
 binario.
+---
+
+## 19. La Fase 8 (y la 10): desplegar esto de verdad, y por qué NO en EKS
+
+La Fase 8 compara Spring y Quarkus. La Fase 10 los despliega, para tener las mismas métricas y
+la experiencia de desplegar dos stacks distintos. Antes de escribir una línea de
+infraestructura hay que separar tres ideas que se mezclan todo el rato.
+
+**Idea 1: Kafka es estado, y el estado no se apaga.** El broker es un log en disco. Existen
+brokers gestionados que se venden como "serverless" (MSK Serverless, Confluent Cloud,
+Redpanda), pero eso significa *"no lo operas tú"*, no *"se apaga cuando no hay tráfico"*: se
+cobran por hora de clúster y por GB, encendido 24/7. Así que el reparto nunca es *"Kafka en
+EC2 y Quarkus en serverless"*, es: **el broker siempre encendido, y las aplicaciones las que
+se apaguen o no**.
+
+**Idea 2: Kafka Streams no puede ser serverless. Nunca.** Y esto es lo que decide el diseño,
+porque **3 de los 7 servicios son Streams** (`analytics-streams`, `portfolio-risk`,
+`alerting-service`):
+
+- Los **state stores** viven en el disco local y se reconstruyen desde su topic de changelog.
+  Si el proceso se apaga, al volver hay que releerlo entero (con el volumen de este proyecto,
+  minutos de arranque en frío).
+- El **rebalanceo** necesita un proceso vivo que participe en el grupo.
+- El **exactly-once** de la Fase 4 se apoya en un productor transaccional abierto, y una
+  transacción no se puede quedar a medias entre dos invocaciones.
+
+Así que serverless solo encaja en los servicios **sin estado**: en Aggora, `ingestion-normalizer`
+(transforma y publica) y quizá `audit-log`.
+
+**Idea 3: cambiar de plataforma cambia el modelo de programación.** En AWS Lambda con un
+*event source mapping* de Kafka (funciona con MSK y con clústeres autoalojados) **no eres tú
+quien consume**: Lambda hace el bucle, te invoca con un lote de registros y **confirma los
+offsets él** cuando el lote termina bien. Consecuencias, todas aprendidas de la documentación
+y ninguna cosmética:
+
+- Si tu función falla, **reintenta el lote entero**: un mensaje venenoso bloquea la partición
+  salvo que configures un *on-failure destination*. El DLT y los topics `.retry-*` de la Fase 6
+  desaparecen, sustituidos por otras reglas.
+- El lote **puede traer mensajes de varias particiones**, así que la garantía de orden por
+  clave cambia de forma.
+- El valor llega **en base64**: sigues necesitando el deserializador de Confluent a mano.
+
+O sea: no es "la misma app en otro sitio", es **otra app**. Es un ejercicio buenísimo (y una
+tercera implementación que contar en el informe), pero no es el port de la Fase 8.
+
+**Analogía:** un servicio con Streams es una imprenta con la máquina cargada de papel y la
+plancha montada; apagarla y volver a encenderla obliga a montarlo todo otra vez. Un servicio
+sin estado es un fotocopiadora: da igual cuándo la enciendas, no tenía nada a medias.
+
+**La escala a cero, en números:** mientras el consumidor está a cero, el lag crece. Con un
+feed continuo de ~60 mensajes/s, un consumidor serverless se pasa la vida arrancando en frío;
+es perfecto para trabajos esporádicos o picos, y malo para un flujo constante. La escala a cero
+brilla donde hay huecos, no donde hay una tubería.
+
+**Y EKS, descartado.** El plano de control de Kubernetes se cobra **por hora aunque no tengas
+ni un nodo**, y encima hay que aprender IAM, la red de los pods, ingress y almacenamiento. Lo
+único que Kubernetes aporta aquí que no da el resto es el mix "siempre encendido + consumidores
+que escalan a cero", y eso se consigue con **KEDA** (su escalador de Kafka escala un Deployment
+a cero según el lag). Si algún día apetece aprender Kubernetes, eso se prueba en un **k3s** en
+una máquina pequeña, sin factura de plano de control; EKS solo se justifica si aprender
+Kubernetes **es** el objetivo.
+
+**Lo que sí se va a hacer (Fase 10), con el broker fuera de la ecuación:**
+
+| Pieza | Dónde | Por qué |
+|---|---|---|
+| Broker | Un *free tier* gestionado con protocolo Kafka completo | Antes de elegir hay que comprobar tres cosas: que soporte **transacciones**, **topic admin** y **Streams**. Los brokers que van por HTTP no valen |
+| Lo que tiene estado (las 3 de Streams) y el resto del pipeline | Una VM pequeña (o ECS Fargate, que es el punto medio sin parchear máquinas) | Siempre encendido, que es lo que el estado necesita |
+| `ingestion-normalizer` | **AWS Lambda** con un *event source mapping* de Kafka | Es el servicio sin estado: el ejercicio de serverless, con sus reglas distintas |
+
+Y el detalle que hace que todo esto funcione solo: la **sonda de salud** del capítulo 18. Un
+servicio de Streams que se queda en ERROR no se cae (el proceso sigue vivo) y sin sonda nadie
+lo reinicia; con `/actuator/health` en DOWN, el supervisor hace su trabajo. Los dos stacks se
+despliegan con la misma idea y cada uno con su herramienta.
+
+**Lo que no hay que hacer, y es tentador:** correr las dos implementaciones a la vez contra los
+mismos topics de salida. Si el port de Quarkus usa el mismo `group.id` que el de Spring, los
+dos se reparten las particiones y **cada mensaje lo procesa uno de los dos** (bien para
+sustituir uno por otro, mal para medir). Para comparar: `group.id` propio y topics de salida
+propios (`market.analytics.quarkus`), o uno encendido cada vez.
