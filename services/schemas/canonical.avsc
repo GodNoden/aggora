@@ -1,0 +1,89 @@
+{
+  "type": "record",
+  "name": "CanonicalTick",
+  "namespace": "com.aggora.avro.canonical",
+  "doc": "Evento canonico: el tick ya validado y normalizado que publica ingestion-normalizer en market.ticks.canonical (version 1). Vive en su propio subject, asi que evoluciona por separado del tick crudo.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "Se conserva el del tick original, para poder rastrear el mismo evento en los dos topics."
+    },
+    {
+      "name": "symbol",
+      "type": "string"
+    },
+    {
+      "name": "assetClass",
+      "type": {
+        "type": "enum",
+        "name": "AssetClass",
+        "symbols": ["EQUITY", "FX", "COMMODITY"]
+      }
+    },
+    {
+      "name": "exchange",
+      "type": {
+        "type": "enum",
+        "name": "Exchange",
+        "symbols": ["NYSE", "NASDAQ", "EURONEXT", "SSE", "FX", "COMMODITY"]
+      }
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "doc": "Divisa ISO-4217, ya validada contra el catalogo de divisas."
+    },
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 18,
+        "scale": 4
+      }
+    },
+    {
+      "name": "size",
+      "type": "int"
+    },
+    {
+      "name": "eventTime",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Cuando ocurrio el tick (UTC), tal cual venia del crudo."
+    },
+    {
+      "name": "source",
+      "type": {
+        "type": "enum",
+        "name": "TickSource",
+        "symbols": ["REFERENCE", "SYNTHETIC"]
+      }
+    },
+    {
+      "name": "sequence",
+      "type": "long"
+    },
+    {
+      "name": "normalizedAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Cuando lo proceso el normalizer. La diferencia con eventTime es el retraso de la ingestia."
+    },
+    {
+      "name": "originPartition",
+      "type": "int",
+      "doc": "Particion de market.ticks.raw de la que salio. Junto al offset, es la trazabilidad del dato."
+    },
+    {
+      "name": "originOffset",
+      "type": "long",
+      "doc": "Offset de origen en market.ticks.raw."
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "type": "record",
+  "name": "Tick",
+  "namespace": "com.aggora.avro",
+  "doc": "Un tick de mercado tal y como viaja en market.ticks.raw (version 1). El contrato lo guarda el Schema Registry en el subject market.ticks.raw-value.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "UUID del evento. Sirve para detectar duplicados en los consumidores."
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Instrumento. Es tambien la key del mensaje Kafka, y por eso todos sus ticks van a la misma particion."
+    },
+    {
+      "name": "assetClass",
+      "type": {
+        "type": "enum",
+        "name": "AssetClass",
+        "symbols": ["EQUITY", "FX", "COMMODITY"]
+      }
+    },
+    {
+      "name": "exchange",
+      "type": {
+        "type": "enum",
+        "name": "Exchange",
+        "symbols": ["NYSE", "NASDAQ", "EURONEXT", "SSE", "FX", "COMMODITY"]
+      },
+      "doc": "Mercado, que determina el horario en el que puede haber ticks."
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "doc": "Divisa ISO-4217 del precio (USD, EUR, CNY)."
+    },
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 18,
+        "scale": 4
+      },
+      "doc": "Precio exacto con 4 decimales. Decimal y no float: en dinero, 0.1 + 0.2 no es 0.3."
+    },
+    {
+      "name": "size",
+      "type": "int",
+      "doc": "Volumen del tick. 0 en los ticks de referencia (son cotizaciones, no operaciones)."
+    },
+    {
+      "name": "eventTime",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Cuando ocurrio el tick, en UTC. El logicalType es lo que declara que este long es una fecha."
+    },
+    {
+      "name": "source",
+      "type": {
+        "type": "enum",
+        "name": "TickSource",
+        "symbols": ["REFERENCE", "SYNTHETIC"]
+      },
+      "doc": "REFERENCE = precio real del proveedor; SYNTHETIC = interpolado entre dos referencias."
+    },
+    {
+      "name": "sequence",
+      "type": "long",
+      "doc": "Contador por simbolo, para poder ver huecos o repeticiones."
+    }
+  ]
+}

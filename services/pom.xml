@@ -35,6 +35,21 @@
   <properties>
     <java.version>21</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- La libreria de Avro de Confluent NO esta en Maven Central: vive en su
+         repositorio, declarado mas abajo. 8.3.1 es la ultima y esta alineada con
+         los clientes de Kafka 4.x que trae Spring Boot 4. La version del plugin de
+         Avro se fija a la misma que arrastra esa libreria para que las clases
+         generadas y el runtime no se desalineen. -->
+    <confluent.version>8.3.1</confluent.version>
+    <avro.version>1.12.1</avro.version>
   </properties>
+
+  <repositories>
+    <repository>
+      <id>confluent</id>
+      <name>Confluent Maven Repository</name>
+      <url>https://packages.confluent.io/maven/</url>
+    </repository>
+  </repositories>
 
 </project>
