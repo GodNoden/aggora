@@ -110,16 +110,30 @@
   `spring-boot-kafka` (starter `spring-boot-starter-kafka`) y los serializadores
   JSON de Spring Kafka se llaman ahora `JacksonJson*`.
 
-## Cómo arrancar y verificar la Fase 1 (dentro del devcontainer)
+## Arranque rápido (todo desde el devcontainer)
 ```bash
+# 0) Infraestructura: Kafka + Schema Registry.
+#    Ojo: los datos viven dentro de los contenedores, así que recrearlos los borra;
+#    los topics y los esquemas se vuelven a crear solos al arrancar los servicios.
+docker compose -f infra/docker-compose.yml up -d
+
+# 1) Compilar
 cd /workspaces/aggora/services
-mvn -q -DskipTests package            # compila los dos servicios
+mvn -q -DskipTests package
 
-# Terminal 1 — productor (crea el topic al arrancar)
-cd market-data-simulator && java -jar target/market-data-simulator-0.1.0-SNAPSHOT.jar
+# 2) Productor (terminal 1). Al arrancar crea el topic de 6 particiones y,
+#    al primer mensaje, registra el esquema Avro en el Schema Registry.
+cd market-data-simulator
+export TWELVEDATA_API_KEY=...      # EEUU, forex, oro y ETFs
+export ALPHAVANTAGE_API_KEY=...    # Euronext y Shanghai (25 peticiones/día)
+java -jar target/market-data-simulator-0.1.0-SNAPSHOT.jar   # su web queda en :8080
 
-# Terminal 2 — consumidor
-cd ingestion-normalizer && java -jar target/ingestion-normalizer-0.1.0-SNAPSHOT.jar
+# 3) Consumidor + productor del canónico (terminal 2)
+cd ../ingestion-normalizer
+java -jar target/ingestion-normalizer-0.1.0-SNAPSHOT.jar
+
+# 4) Comprobación rápida: los dos contratos registrados
+curl -s localhost:8081/subjects
 ```
 Comprobaciones (desde WSL/Windows, que es donde tienes la CLI de Kafka):
 ```bash
