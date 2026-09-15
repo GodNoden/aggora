@@ -224,10 +224,41 @@
   La traducción de Avro se comprueba sin broker en `SchemaEvolutionTest` (5 tests, con la
   clase `CanonicalTick` ya compilada haciendo de consumidor antiguo): **41 tests en verde**
   en total. Detalle en `docs/schema-evolution-lab.md` y capítulo 17 de `docs/kafka-101.md`.
-- ⏭️ **Fase 8 (siguiente)** — port de los servicios a Quarkus (SmallRye Reactive Messaging y
-  la extensión de Kafka Streams) e imagen nativa de GraalVM para medir arranque y memoria.
-  Antes hace falta añadir métricas de aplicación (actuator + micrometer) para tener la línea
-  base de la versión Spring.
+- 🔄 **Fase 8 (en curso) — Port a Quarkus**: el trabajo previo está hecho y verificado.
+  - **El árbol se partió para que las dos implementaciones convivan** (no es una migración:
+    la versión Spring se queda, y el port será una segunda implementación de la misma
+    plataforma, generando sus clases desde los MISMOS contratos Avro).
+    `services/pom.xml` es ahora un agregador que no hereda de nadie; `services/spring/` cuelga
+    de `aggora-spring-services` y `services/quarkus/` tendrá su padre con el BOM de Quarkus.
+    Los 7 módulos se movieron con `git mv` (historia conservada) y los **41 tests siguen en
+    verde** tras el movimiento.
+  - **Métricas de aplicación** (`actuator` + `micrometer-registry-prometheus`) en los dos
+    servicios que ya tienen servidor web: `market-data-simulator` (8080) y `analytics-streams`
+    (8085). A los otros cinco habría que añadirles `spring-boot-starter-web` solo para mirarles
+    la memoria, y eso cambiaría justo lo que se quiere medir. Las series llevan las etiquetas
+    `stack="spring"` y `service=...`, que son las que permitirán poner las dos
+    implementaciones en el mismo panel de Grafana. Prometheus ya las recoge
+    (`host.docker.internal:8080` y `:8085`, porque los servicios corren en el devcontainer y su
+    nombre de contenedor no resuelve desde `aggora-net`).
+  - **Sonda de salud del motor** (`StreamsHealth`): `/actuator/health` baja a **DOWN** cuando
+    Kafka Streams está en ERROR y publica `aggora_kafka_streams_running` (1/0). Verificado
+    rompiendo el checkpoint del GlobalKTable a propósito: el proceso sigue vivo, el endpoint
+    devuelve 503 y la sonda dice DOWN con `estado: ERROR`. Es lo que convierte un fallo
+    silencioso en un reinicio por parte del supervisor.
+  - **Dos hallazgos por el camino**, los dos arreglados o documentados: el endpoint de
+    consultas devolvía **500** cuando el state store aún se estaba reconstruyendo (es un
+    transitorio, ahora es **503**, verificado en un arranque real: 503…503, 200, y ningún 500);
+    y `SHUTDOWN_APPLICATION` como respuesta al error del hilo global **no mata el proceso**
+    dentro de Spring: enreda el cierre, escribe 429 MB de log en 28 segundos y el JVM sigue
+    vivo. Los detalles, en `docs/decisions.md`.
+  - **Línea base medida** (`bash scripts/measure-service.sh`, RSS en reposo y arranque):
+    simulador 531 MB / 2,8 s · normalizer 441 MB / 2,0 s · analytics 516 MB / 3,2 s ·
+    matching 297 MB / 2,6 s · portfolio 434 MB / 2,7 s · alerting 469 MB / 2,3 s ·
+    audit 336 MB / 2,6 s. Son los números contra los que se medirá Quarkus en la Fase 9.
+- ⏭️ **Fase 8 (lo que queda)** — el port servicio a servicio con SmallRye Reactive Messaging y
+  la extensión de Kafka Streams, con `group.id` propio y topics de salida propios para poder
+  correr los dos stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec
+  pide *at least two*) con las medidas de arranque y memoria.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
@@ -440,6 +471,20 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
 # Y el evento canónico, que produce el normalizer
 docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.canonical
+```
+
+### Verificar la Fase 8 (arranque, memoria y salud)
+```bash
+cd /workspaces/aggora
+bash scripts/measure-service.sh                       # arranque, RSS, hilos y ficheros
+
+# La sonda de salud del motor y la metrica que ve Prometheus
+curl -s localhost:8085/actuator/health
+curl -s localhost:8085/actuator/prometheus | grep aggora_kafka_streams_running
+
+# Y desde Prometheus/Grafana
+curl -s 'localhost:9090/api/v1/targets?state=active' | grep -o '"job":"aggora-apps"'
+http://localhost:3000/d/aggora-kafka      # paneles de motor, arranque, hilos, memoria y CPU
 ```
 
 ### Verificar la Fase 7 (evolución de esquemas)

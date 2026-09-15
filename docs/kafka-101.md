@@ -787,3 +787,61 @@ corta a la mitad) y la traducción de Avro se comprueba sin broker en
 propuesto está en `services/spring/ingestion-normalizer/src/test/resources/canonical-v2.avsc`:
 `canonical.avsc` con un campo `venueMic` al final que tiene `"default": ""`. Ese `default`
 es todo el cambio.
+---
+
+## 18. La Fase 8 (preparación): salud, métricas y quién levanta lo que se cae
+
+Antes de portar nada a Quarkus hay que poder **medir** las dos implementaciones igual, y eso
+destapó algo que llevaba desde la Fase 6 escondido: un servicio de Kafka Streams puede estar
+**vivo y roto a la vez**.
+
+**La idea en una frase:** que el proceso exista no significa que el servicio funcione, así que
+la pregunta "¿estás bien?" hay que hacérsela al **motor**, no al proceso.
+
+**La analogía:** un coche con el motor parado y las luces encendidas. Desde fuera parece que
+está en marcha (hay luces, hay radio, la puerta abre), pero no se mueve. Si el mecánico
+comprueba solo "¿hay luces?", te dirá que todo va bien.
+
+**Lo que pasó, en orden:**
+
+1. El topic compactado de tipos de cambio (`market.fx.reference`) se compactó y la
+   compactación avanzó el principio del log **por delante del checkpoint** que Kafka Streams
+   tenía en disco. Su estado global quedó "inconsistente" y el hilo global murió.
+2. La respuesta que ya teníamos (`REPLACE_THREAD`, sustituir el hilo) **no arregla eso**:
+   Kafka Streams limpia el estado local y pide un reinicio, pero el cliente se queda en ERROR.
+   El proceso sigue vivo, `/analytics` responde 503 y nada se procesa.
+3. Se probó a responder `SHUTDOWN_APPLICATION` ("que se pare la aplicación entera"). **Sale
+   peor**: dentro de Spring el cierre se enreda, el consumidor entra en un bucle escribiendo
+   "Request joining group due to: Shutdown requested" —**429 MB de log en 28 segundos**— y el
+   proceso tampoco muere. Se revirtió.
+4. La respuesta buena no está en el manejador de errores: **un servicio no debería decidir
+   suicidarse**. Quien levanta un proceso caído es el **supervisor** (la política de reinicio
+   de Docker, systemd, Kubernetes) y quien le dice que está roto es la **sonda de salud**.
+
+**Las dos sondas, que no son lo mismo** (y aquí está el vocabulario que se usa en cualquier
+despliegue):
+
+- **Liveness**: "¿el proceso está atascado?". Si falla, el supervisor **mata y reinicia**.
+- **Readiness**: "¿puede atender peticiones?". Si falla, el balanceador **deja de mandarle
+  tráfico** pero no lo reinicia.
+
+En Aggora, `StreamsHealth` (Fase 8) pone `/actuator/health` en **DOWN** cuando el motor no
+procesa y publica `aggora_kafka_streams_running` (1 o 0) para que Grafana lo pueda avisar.
+Verificado a propósito: se rompió el checkpoint del GlobalKTable, y con el proceso vivo y
+escuchando, la sonda dijo DOWN con `estado: ERROR` y la métrica valió 0. **Eso** es convertir
+un fallo silencioso en un reinicio.
+
+**Y una lección de HTTP que vale para cualquier servicio:** mientras el estado se reconstruye,
+el store existe pero no se puede leer. Eso **no es un 500** (el servicio no ha fallado), es un
+**503** (todavía no estoy listo); un 500 hace que un balanceador saque la instancia de rotación
+como si estuviera rota. En Aggora el `try` envolvía solo el momento de *abrir* el store,
+abrir funcionaba y el fallo llegaba después, al leer: muestreando en un arranque real se ve
+503, 503, 200 y ningún 500.
+
+**La línea base, medida antes de portar nada** (RSS en reposo, y el tiempo del proceso hasta
+estar listo, que es lo que espera un contenedor): de 297 a 531 MB y de 2,0 a 3,2 segundos por
+servicio. Son los números contra los que se medirá Quarkus, y `scripts/measure-service.sh` los
+saca igual para las dos implementaciones: arranque del log, RSS de `ps`, hilos y descriptores
+de `/proc`. El RSS es la cifra importante porque una **imagen nativa no tiene heap de la JVM**:
+las métricas `jvm_*` sirven para mirar la JVM por dentro, no para comparar una JVM con un
+binario.

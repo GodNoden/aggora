@@ -318,3 +318,60 @@ dejan de recibirlo. "Compatible" no significa nada sin decir en que direccion, y
 un borrado no aparece en el registro sino en produccion. Es el mismo tipo de leccion que el
 `MissingSourceTopicException` de la Fase 6: el sistema te avisa donde puede, no donde
 quisieras.
+
+## Fase 8 — Port a Quarkus (preparacion)
+
+La Fase 8 no es una migracion: las dos implementaciones viven juntas para poder compararlas.
+Eso manda en la estructura y en lo que se comparte.
+
+| Decision | Por que |
+|---|---|
+| `services/pom.xml` es un **agregador que no hereda de nadie**, y cada implementacion tiene su padre (`spring/pom.xml` hereda de `spring-boot-starter-parent`; el de Quarkus importara su BOM) | El comentario original del pom imaginaba modulos Quarkus hermanos del mismo padre. No vale: ese padre mete el `dependencyManagement` y los plugins de Spring, y las versiones de `kafka-clients`, Jackson o JUnit las decidiria Spring en vez del BOM de Quarkus |
+| Los 7 modulos se movieron con `git mv` a `services/spring/` y `services/schemas/` **no se movio** | Los contratos Avro son de las dos implementaciones: cada una genera sus clases de los mismos `.avsc`, que es lo que hace que las dos hablen el mismo idioma en el topic (y lo que permite que el port de Quarkus consuma lo que produce el simulador de Spring). Los 41 tests verdes son la red de seguridad del movimiento |
+| Metricas (`actuator` + `micrometer-registry-prometheus`) **solo en los dos servicios con servidor web** | `market-data-simulator` (8080) y `analytics-streams` (8085). A los otros cinco habria que anadirles `spring-boot-starter-web` solo para poder mirarles la memoria, y eso cambiaria justo lo que se quiere medir. Para esos cinco, el RSS se mide con `ps` (`scripts/measure-service.sh`) |
+| Etiquetas `stack` y `service` **en la aplicacion**, no en el scrape de Prometheus | Es lo que permite poner las dos implementaciones en el mismo panel. Ponerlas tambien en el scrape haria que Prometheus renombrase las de dentro a `exported_stack`, que es el lio que se quiere evitar |
+| El scrape apunta a `host.docker.internal:8080` y `:8085` | Los servicios corren en el devcontainer, no como contenedores de `aggora-net`. Se probo el nombre del contenedor (`eager_allen`) y **no resuelve** desde Prometheus; `host.docker.internal` si (Docker Desktop lo da hecho en Windows/WSL2; en Linux hay que anadir `extra_hosts: host-gateway`) |
+| El volumen de Prometheus monta la **carpeta**, no el fichero | Montar un solo fichero funciono hasta que se reemplazo: el montaje queda atado al inodo viejo y al recrear el contenedor Docker Desktop falla con "no such file or directory". Con la carpeta montada, editar `prometheus.yml` no rompe nada |
+
+### El fallo silencioso, otra vez: la sonda de salud
+
+Trabajando en las metricas volvio a aparecer el fallo de la Fase 6, y esta vez con la leccion
+completa. El GlobalKTable sobre `market.fx.reference` (topic **compactado**) fallo con
+`OffsetOutOfRangeException`: la compactacion avanzo el principio del log por delante del
+checkpoint local, Kafka Streams limpio el estado y pidio un reinicio que nadie le dio. El
+servicio se quedo **vivo, escuchando y devolviendo 503**, con el motor en ERROR.
+
+| Lo que se probo | Resultado |
+|---|---|
+| `REPLACE_THREAD` (lo que ya habia) | El cliente se para igual: sustituir el hilo no arregla un estado global inconsistente. El servicio queda en ERROR, pero se recupera al reiniciarlo (Kafka Streams ya limpio el estado local) |
+| `SHUTDOWN_APPLICATION` (que sobre el papel para la aplicacion entera) | **Peor**: dentro de Spring el cierre se enreda, el consumidor entra en un bucle de `Request joining group due to: Shutdown requested` que escribio **429 MB de log en 28 segundos**, y el proceso **tampoco muere**. Se revirtio |
+| `StreamsHealth`: `/actuator/health` a DOWN y `aggora_kafka_streams_running` a 0 | **Es la respuesta**: un servicio no deberia decidir suicidarse. Quien levanta un proceso caido es el supervisor (la politica de reinicio de Docker, systemd, Kubernetes) y quien le dice que esta roto es la sonda. Verificado rompiendo el checkpoint a proposito: el proceso sigue vivo, `/analytics` da 503, la sonda dice DOWN con `estado: ERROR` y la metrica vale 0 |
+
+### Detalle que costo un rato: 500 no es un transitorio
+
+Cada vez que el servicio arranca, el state store existe pero no se puede leer todavia
+(`InvalidStateStoreException: the stream thread is STARTING, not RUNNING`). El controlador
+devolvia **500** porque el `try` solo envolvia el momento de *abrir* el store: abrirlo
+funcionaba y el fallo llegaba despues, en el `fetch`. Ahora el `try` envuelve la consulta
+entera y se responde **503** con el motivo. Verificado en un arranque real, muestreando el
+endpoint cada medio segundo: 503, 503, 200 y **ningun 500**.
+
+### Linea base (medida, no estimada)
+
+`bash scripts/measure-service.sh`, con el sistema en reposo. El "proceso" es lo que tarda
+desde que arranca el proceso hasta que esta listo, que es lo que espera un contenedor; el
+"ctx" es lo que tardo el contexto de Spring.
+
+| Servicio | ctx (s) | proceso (s) | RSS (MB) | hilos | ficheros |
+|---|---|---|---|---|---|
+| market-data-simulator | 2,399 | 2,775 | 531 | 54 | 18 |
+| ingestion-normalizer | 1,635 | 2,009 | 441 | 37 | 20 |
+| analytics-streams | 2,862 | 3,229 | 516 | 78 | 210 |
+| order-matching-engine | 2,125 | 2,560 | 297 | 37 | 20 |
+| portfolio-risk | 2,227 | 2,688 | 434 | 60 | 87 |
+| alerting-service | 0,338 | 2,342 | 469 | 39 | 25 |
+| audit-log | 2,163 | 2,556 | 336 | 49 | 45 |
+
+Ojo con la fila de `alerting-service`: su contexto arranca en 0,338 s pero el proceso tarda
+2,342 s. Mirar solo la cifra de Spring ("Started X in N seconds") da una foto incompleta: lo
+que un contenedor espera de verdad es el tiempo del proceso.

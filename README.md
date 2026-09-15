@@ -29,7 +29,7 @@ were fixed.
 | Dead-letter topics and retries | `.DLT` on two consumers + `@RetryableTopic` with `.retry-*` topics |
 | Transactional outbox | Postgres and the compacted `audit.events` topic |
 | Replicas, ISR and `min.insync.replicas` | 3-broker KRaft cluster with 3 replicas per partition |
-| Operations and observability | kafka-exporter + Prometheus + Grafana, provisioned from this repository |
+| Operations and observability | kafka-exporter + Prometheus + Grafana, provisioned from this repository; app metrics from actuator/micrometer and a health probe that goes DOWN when the engine is dead |
 
 ---
 
@@ -153,7 +153,7 @@ variables.
 | 5 | Portfolio, alerts and audit with a transactional outbox | ✅ |
 | 6 | Resilience and operations: DLT, retries, 3 brokers, Grafana | ✅ |
 | 7 | Schema evolution lab: what breaks, how it is caught and how it is fixed | ✅ |
-| 8 | Port of the services to Quarkus + GraalVM native image | 🔄 next |
+| 8 | Port of the services to Quarkus + GraalVM native image | 🔄 in progress (tree split, app metrics and health probes done) |
 | 9 | Spring vs Quarkus comparison report, with numbers | ⏳ |
 
 **Verified live, not in theory:** 41 unit tests green, 3 brokers with a KRaft quorum and 3
@@ -171,11 +171,11 @@ rebuild of the environment.
 README.md                  project front page
 SPEC.md                    the original spec (immutable)
 CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
-docs/kafka-101.md          the Kafka concepts in plain language (17 chapters)
+docs/kafka-101.md          the Kafka concepts in plain language (18 chapters)
 docs/decisions.md          decision log and the deliberate deviations from the spec
 docs/schema-evolution-lab.md  the schema evolution lab manual
 infra/                     docker-compose, Prometheus, Grafana dashboard
-scripts/                   start/stop of the services, plus the schema evolution lab
+scripts/                   start/stop, the schema evolution lab and the measurement of startup/RSS
 services/                  Maven aggregator: the platform in both implementations
   schemas/                 the 12 Avro contracts (.avsc) the classes are generated from
   spring/                  Spring Boot implementation (phase 1)
