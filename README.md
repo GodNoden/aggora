@@ -156,6 +156,14 @@
   - **Pendiente de la fase**: cluster de **3 brokers** con `replicas: 3` y
     `min.insync.replicas: 2` (matar un broker y ver que el sistema aguanta), y el panel de
     **Grafana** con kafka-exporter para ver el lag.
+- 🧱 **Operación (aprendido a golpes)** — Se reinició el entorno (Docker Desktop/WSL) y se
+  cayeron los 7 servicios y los 3 contenedores. Al volver, **no se perdió nada**: 29 topics,
+  22 esquemas y 131.932 eventos auditados seguían ahí, porque el estado vive en Kafka y
+  Postgres, no en los servicios. Se arreglaron tres cosas: políticas de reinicio
+  (`restart: unless-stopped`) en la infraestructura, los scripts de arranque/parada, y **la
+  carrera de topics** (Kafka Streams falla con `MissingSourceTopicException` si su topic de
+  origen aún no existe: ahora el arranque espera a que cada servicio confirme que está
+  listo). Los detalles, en el capítulo 14 de `docs/kafka-101.md`.
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -178,19 +186,18 @@ docker compose -f infra/docker-compose.yml up -d
 cd /workspaces/aggora/services
 mvn -q -DskipTests package
 
-# 2) Productor (terminal 1). Al arrancar crea el topic de 6 particiones y,
-#    al primer mensaje, registra el esquema Avro en el Schema Registry.
-cd market-data-simulator
+# 2) Los 7 servicios, en orden y esperando a que cada uno esté listo.
+#    El orden importa: Kafka Streams falla si su topic de origen no existe todavía,
+#    y los topics los crea el servicio que escribe en ellos.
 export TWELVEDATA_API_KEY=...      # EEUU, forex, oro y ETFs
 export ALPHAVANTAGE_API_KEY=...    # Euronext y Shanghai (25 peticiones/día)
-java -jar target/market-data-simulator-0.1.0-SNAPSHOT.jar   # su web queda en :8080
+cd /workspaces/aggora
+bash scripts/start-services.sh     # logs en /tmp/<servicio>.log
+bash scripts/stop-services.sh      # para pararlos todos
 
-# 3) Consumidor + productor del canónico (terminal 2)
-cd ../ingestion-normalizer
-java -jar target/ingestion-normalizer-0.1.0-SNAPSHOT.jar
-
-# 4) Comprobación rápida: los dos contratos registrados
-curl -s localhost:8081/subjects
+# 3) Comprobación rápida: los contratos registrados y una consulta al state store
+curl -s localhost:8081/subjects | head -c 200
+curl -s 'localhost:8085/analytics?symbol=EUR/USD&minutes=3' | head -c 300
 ```
 Comprobaciones (desde WSL/Windows, que es donde tienes la CLI de Kafka):
 ```bash

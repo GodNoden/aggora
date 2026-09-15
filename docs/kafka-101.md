@@ -569,3 +569,47 @@ se reconecta y sigue desde su marcapaginas. Lo que **no** se puede hacer con un 
 es sobrevivir a su perdida: para eso hacen falta 3 brokers, `replicas: 3` y
 `min.insync.replicas: 2`, que es lo siguiente.
 
+---
+
+## 14. La Fase 6 (segunda parte): operar esto de verdad
+
+La mejor lección de operación vino sin buscarla: **se reinició el entorno entero**
+(Docker Desktop/WSL) y los siete servicios y los tres contenedores se cayeron de golpe.
+Reconstruir el sistema desde cero enseñó cuatro cosas que no se aprenden leyendo:
+
+**1. El estado no estaba en los servicios, y por eso no se perdió nada.** Al volver a
+arrancar los contenedores (arrancarlos, no recrearlos), seguía todo: 29 topics, 22
+esquemas y 131.932 eventos auditados. Los servicios son **stateless**: su estado vive en
+Kafka, en Postgres o en los state stores con su changelog. Arrancarlos de cero no pierde
+nada, y eso es diseño, no suerte.
+
+**2. El orden de arranque importa, y no basta con lanzarlos seguidos.** Kafka Streams
+**falla** si un topic de origen no existe todavía (`MissingSourceTopicException`), y los
+topics los crea el servicio que escribe en ellos. Las alertas arrancaron antes de que la
+analítica hubiera creado `market.analytics` y se cayeron. La solución es esperar a que cada
+servicio confirme su arranque antes de lanzar el siguiente (está en
+`scripts/start-services.sh`).
+
+**3. Los topics compactados y los GlobalKTable se llevan regular.** El GlobalKTable de los
+tipos de cambio guarda en su *checkpoint* el offset por el que iba, y la compactación había
+borrado esos offsets viejos: `OffsetOutOfRangeException` y el hilo global muerto. La
+recuperación documentada es reiniciar la aplicación (el hilo global relee desde el principio
+disponible). Moraleja: un topic compactado **no** es un histórico fiable; es el último
+estado de cada clave.
+
+**4. No todos los errores son iguales, aunque los dos pongan ERROR.** Junto a esos dos
+fallos mortales había uno **auto-reparable**: `TaskCorruptedException ... need to be
+re-initialized`. Streams detectó que el estado de una tarea quedó inconsistente tras el
+apagón brusco, la reinicializó y la reconstruyó **desde su changelog**. Puso ERROR en el log
+y siguió funcionando. Saber distinguir "esto se arregla solo" de "esto está muerto" es la
+mitad del trabajo de operar.
+
+**Lo que se arregló en el repo:** políticas de reinicio (`restart: unless-stopped`) para que
+la infraestructura vuelva sola si se reinicia Docker Desktop, y dos scripts
+(`scripts/start-services.sh` y `scripts/stop-services.sh`) que arrancan y paran los siete
+servicios en orden, esperando a que cada uno esté listo.
+
+**Lo que sigue faltando:** los procesos Java no los supervisa nadie. En producción eso lo
+hace Kubernetes (o systemd): si un servicio se cae, se vuelve a levantar solo. Aquí hay que
+ejecutar el script, que es la diferencia entre "resiliente" y "recuperable a mano".
+

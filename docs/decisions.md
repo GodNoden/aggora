@@ -239,3 +239,17 @@ Dos incidentes que valen más que la teoría:
 | Reintentos *largos* en la auditoría, *cortos* en el resto | Es una decisión de negocio: un tick de hace dos minutos ya no sirve, pero un registro de auditoría perdido es inaceptable. Mismo mecanismo, configuración opuesta |
 | **Pendiente**: cluster de 3 brokers y Grafana | `min.insync.replicas` y el failover necesitan varios brokers (con `replicas: 1` no hay nada que conmutar); el panel de lag necesita kafka-exporter + Prometheus + Grafana |
 
+### Incidente de operación (reinicio del entorno) y lo que se arregló
+
+Se reinició Docker Desktop/WSL: cayeron los 7 servicios y los 3 contenedores. Las lecciones
+y los arreglos:
+
+| Hallazgo | Arreglo |
+|---|---|
+| El estado **no** estaba en los servicios: 29 topics, 22 esquemas y 131.932 eventos sobrevivieron porque al levantar de nuevo los contenedores se *arrancan*, no se recrean | Nada que arreglar: es la consecuencia de que el estado viva en Kafka, Postgres y los state stores con changelog. Pero conviene saberlo: `docker compose down` **sí** se llevaría los datos (no hay volúmenes) |
+| Los contenedores no volvieron solos tras el reinicio | `restart: unless-stopped` en Kafka, Schema Registry y Postgres |
+| **Carrera de arranque**: Kafka Streams falla al arrancar si su topic de origen no existe todavía (`MissingSourceTopicException`), y los topics los crea quien escribe en ellos | `scripts/start-services.sh` arranca en orden y **espera a que cada servicio confirme** que está listo antes de lanzar el siguiente. Los scripts también evitan tener que abrir 7 terminales |
+| **GlobalKTable + topic compactado**: el checkpoint del store global apuntaba a offsets que la compactación ya había borrado (`OffsetOutOfRangeException`), y el hilo global murió | La recuperación documentada es reiniciar la aplicación. Queda anotado que un topic compactado no es un histórico fiable, solo el último estado por clave |
+| `TaskCorruptedException` puso ERROR pero **se arregló solo**: Streams reinicializó la tarea y la reconstruyó desde su changelog | Nada: es el mecanismo funcionando. Sirve para distinguir "error mortal" de "error auto-reparable" |
+| Los procesos Java no los supervisa nadie: si uno se cae, no vuelve | Deuda consciente: en producción lo hace Kubernetes o systemd. Aquí, ejecutar el script |
+
