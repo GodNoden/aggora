@@ -1,0 +1,43 @@
+{
+  "type": "record",
+  "name": "PortfolioPosition",
+  "namespace": "com.aggora.avro.portfolio",
+  "doc": "Posicion viva de una cuenta en un instrumento. Es el valor de la KTable de portfolio-risk y el contrato de portfolio.updates (subject portfolio.updates-value). Cada actualizacion es el estado completo, como una tabla que se reescribe: quien lo lea se queda con el ultimo valor de cada clave.",
+  "fields": [
+    {"name": "accountId", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "currency", "type": "string"},
+    {
+      "name": "quantity",
+      "type": "long",
+      "doc": "Positivo = posicion larga (comprada), negativo = corta (vendida)."
+    },
+    {
+      "name": "averageCost",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Coste medio de lo que se tiene abierto."
+    },
+    {
+      "name": "realizedPnl",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Beneficio o perdida YA materializados al cerrar parte de la posicion."
+    },
+    {
+      "name": "exposure",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "|quantity| * averageCost: lo que hay en juego, en la divisa del instrumento."
+    },
+    {
+      "name": "marginLimit",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Limite de exposicion configurado para esa cuenta."
+    },
+    {
+      "name": "marginBreach",
+      "type": "boolean",
+      "doc": "true si la exposicion supera el limite: es lo que vigila alerting-service."
+    },
+    {"name": "executions", "type": "long", "doc": "Cuantas ejecuciones han tocado esta posicion."},
+    {"name": "lastUpdated", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

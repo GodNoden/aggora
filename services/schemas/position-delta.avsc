@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "PositionDelta",
+  "namespace": "com.aggora.avro.portfolio",
+  "doc": "Movimiento de posicion de UNA cuenta provocado por una ejecucion. Cada ejecucion genera DOS deltas: el comprador suma y el vendedor resta. Se re-clava por cuenta+simbolo, asi que necesita su propio contrato porque viaja por el topic de reparticion.",
+  "fields": [
+    {"name": "accountId", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "currency", "type": "string"},
+    {
+      "name": "quantityDelta",
+      "type": "int",
+      "doc": "Positivo si la cuenta compra, negativo si vende."
+    },
+    {
+      "name": "price",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4}
+    },
+    {"name": "executionId", "type": "string", "doc": "Para poder rastrear de que ejecucion viene el movimiento."},
+    {"name": "executedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
