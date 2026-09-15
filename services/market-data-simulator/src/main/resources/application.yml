@@ -110,7 +110,19 @@ aggora:
       feed: TWELVE_DATA
       feed-symbol: XOM
       feed-exchange: NYSE
-    # --- Euronext Paris (EUR, 09:00-17:30 CET) ---
+    # Doble cotizacion: la MISMA empresa en dos mercados y dos divisas. Es la pareja
+    # que usa analytics-streams para calcular el spread de arbitraje. El simbolo de la
+    # cotizacion europea lleva sufijo (.AMS) para que cada listing sea un instrumento
+    # distinto y no se mezclen sus precios en los mismos agregados.
+    - symbol: ASML
+      asset-class: EQUITY
+      exchange: NASDAQ
+      currency: USD
+      seed-price: 1574.62
+      feed: TWELVE_DATA
+      feed-symbol: ASML
+      feed-exchange: NASDAQ
+    # --- Euronext (EUR, 09:00-17:30 CET; Amsterdam usa la misma zona y horario que Paris) ---
     - symbol: MC
       asset-class: EQUITY
       exchange: EURONEXT
@@ -132,6 +144,13 @@ aggora:
       seed-price: 195.00
       feed: ALPHA_VANTAGE
       feed-symbol: AIR.PAR
+    - symbol: ASML.AMS
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 1383.40
+      feed: ALPHA_VANTAGE
+      feed-symbol: ASML.AMS
     # --- Shanghai (CNY, 09:30-11:30 y 13:00-15:00 CST) ---
     - symbol: "600519"
       asset-class: EQUITY
