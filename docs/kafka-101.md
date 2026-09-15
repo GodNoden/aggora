@@ -521,3 +521,51 @@ Lo que se gana y lo que se paga:
 - **La base de datos es la fuente de verdad**: se puede consultar que paso, cuando, y si ya
   se publico o no. Con SQL, sin descodificar nada.
 
+---
+
+## 13. La Fase 6 en la práctica: qué pasa con lo que falla
+
+Todo lo anterior asume que los mensajes se procesan bien. La realidad es que algunos
+fallan, y hay que decidir **qué se hace con ellos**. Aqui se juntan las tres respuestas
+posibles, de menor a mayor gravedad:
+
+| Mecanismo | Cuando se usa | Que pasa con el mensaje |
+|---|---|---|
+| **Reintento inmediato** (en memoria) | Fallos de un instante (un timeout, un bloqueo) | Se reintenta en el sitio, sin soltar la particion |
+| **Topic de reintento** | Fallos que tardan en resolverse (la base de datos caida un rato) | Se aparta a otro topic y se reintenta mas tarde, con espera creciente. La particion sigue avanzando |
+| **Dead-letter topic** | Fallos que no se van a resolver solos (mensaje invalido, veneno) | Se aparta al topic de descartes CON el motivo, para revisarlo a mano |
+
+**La diferencia que mas cuesta ver: transitorio contra venenoso.** Un fallo transitorio
+depende del momento (la base de datos esta caida *ahora*); al reintentar, se resuelve. Un
+fallo venenoso **pertenece al mensaje**: ese mensaje no se va a poder procesar nunca. Los
+reintentos solo sirven para lo primero; para lo segundo hace falta el DLT, porque
+reintentar un veneno eternamente **bloquea la particion** y todo lo que venga detras
+espera. Es justo el problema que teniamos en la Fase 4, cuando decidimos "no descartar en
+silencio": acabamos con un mensaje imposible parando su particion para siempre.
+
+**Como se monta, en la practica:**
+
+- Con anotaciones (`@RetryableTopic` + `@DltHandler`) Spring Kafka crea los topics de
+  reintento y el DLT por ti, con los nombres `<topic>.retry-500`, `<topic>.retry-1000` y
+  `<topic>.DLT` (el numero es la espera en milisegundos).
+- O a mano, con un manejador de errores y un publicador de descartes, cuando el consumidor
+  es transaccional y hay que meter la publicacion al DLT **dentro de la misma transaccion**
+  que el commit del offset.
+- **El topic del DLT hay que declararlo.** Con la autocreacion apagada (Fase 2, y con
+  razon), el publicador de descartes no puede crear el topic por su cuenta: intenta escribir
+  y el broker le contesta que no existe. Nos paso en vivo.
+
+**Cuanto se reintenta es una decision de negocio, no tecnica.** Para un feed de precios,
+reintentar mucho es absurdo: un tick de hace dos minutos ya no sirve, mejor descartarlo
+rapido. Para una auditoria, perder un registro es inaceptable, asi que los reintentos deben
+ser largos (minutos u horas). El mismo mecanismo, configurado al reves segun lo que
+procesa.
+
+**Y un experimento de operacion: reiniciar el broker.** Con `replicas: 1` (un solo broker)
+no hay failover posible: mientras el broker esta caido, no se puede leer ni escribir. Pero
+los clientes hacen *buffer* y reintentan, asi que un reinicio corto no se nota en los datos
+finales: el productor guarda los mensajes en memoria y los manda al volver, y el consumidor
+se reconecta y sigue desde su marcapaginas. Lo que **no** se puede hacer con un solo broker
+es sobrevivir a su perdida: para eso hacen falta 3 brokers, `replicas: 3` y
+`min.insync.replicas: 2`, que es lo siguiente.
+

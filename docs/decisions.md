@@ -227,3 +227,15 @@ Dos incidentes que valen más que la teoría:
 | Fecha al insertar como **`OffsetDateTime`** | El driver de Postgres no sabe convertir un `Instant` y falla solo en marcha (`Can't infer the SQL type`). Costó 327 errores en el log descubrirlo |
 | Deuda: el camino con Postgres no tiene test de integración | Lo correcto es **Testcontainers**, como pide la estrategia de pruebas del spec. De momento se verifica en vivo; queda anotado |
 
+## Fase 6 — Descartes, reintentos y operación (en curso)
+
+| Decisión | Por qué |
+|---|---|
+| **Tres mecanismos** según el fallo: reintento en el sitio, topic de reintento y DLT | Un fallo de un instante se resuelve reintentando; uno que tarda (la base de datos caída) se aparta a un topic de reintento; uno que no se va a resolver nunca (mensaje venenoso) va al DLT. Reintentar un veneno para siempre **bloquea la partición**, que es lo que pasaba en la Fase 4 |
+| El fallo inyectado del motor se decide por el **orderId**, no por un contador | Lección en vivo: con un contador, al reintentar el contador avanza, el fallo desaparece y el mensaje se procesa bien, así que **nunca llega al DLT**. Los DLT son para venenos (el fallo pertenece al mensaje), no para fallos de un momento |
+| El DLT se **declara** en el `KafkaTopicConfig` de cada servicio | Con la autocreación apagada (Fase 2), el publicador de descartes no puede crear el topic: intenta escribir y el broker contesta que no existe. Se descubrió en vivo; es la misma regla de siempre (cada topic lo declara quien escribe) |
+| `@RetryableTopic` en la auditoría (y manejador manual en el motor) | La auditoría no es transaccional y el patrón declarativo crea los topics de reintento y el DLT sin código. En el motor, que sí es transaccional, la publicación al DLT tiene que ir **dentro de la misma transacción** que el commit, y eso se monta a mano |
+| El motivo del descarte viaja en la **cabecera `x-dlt-reason`** | Dentro de tres semanas, quien mire el DLT agradecerá saber por qué se descartó cada mensaje |
+| Reintentos *largos* en la auditoría, *cortos* en el resto | Es una decisión de negocio: un tick de hace dos minutos ya no sirve, pero un registro de auditoría perdido es inaceptable. Mismo mecanismo, configuración opuesta |
+| **Pendiente**: cluster de 3 brokers y Grafana | `min.insync.replicas` y el failover necesitan varios brokers (con `replicas: 1` no hay nada que conmutar); el panel de lag necesita kafka-exporter + Prometheus + Grafana |
+

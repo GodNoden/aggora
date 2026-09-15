@@ -141,6 +141,21 @@
     despues al topic **compactado** `audit.events`. Verificado en vivo: 122.000 eventos
     auditados y la bandeja de salida drenandose a `pendientes = 0`.
   - Verificacion: los comandos de abajo.
+- 🔄 **Fase 6 (en curso)** — Resiliencia:
+  - **Dead-letter topics y reintentos** en tres consumidores: `ingestion-normalizer`
+    (los ticks invalidos van a `market.ticks.raw.DLT` **con el motivo en una cabecera**),
+    `order-matching-engine` (reintentos cortos y, si la orden es venenosa, a
+    `orders.incoming.DLT`) y `audit-log` (patron de **retry topics** con
+    `@RetryableTopic`: topics `.retry-500`, `.retry-1000` y `.DLT`).
+    Verificado en vivo: 7 ticks invalidos descartados con su motivo, 24 ordenes venenosas
+    descartadas **sin bloquear la particion** (que era el problema de la Fase 4), y la
+    auditoria recuperandose sola tras parar Postgres.
+  - **Reinicio del broker** documentado: con `replicas: 1` no hay failover, pero los
+    clientes hacen buffer y reintentan, asi que el pipeline se recupera solo (los offsets
+    siguieron avanzando durante el reinicio).
+  - **Pendiente de la fase**: cluster de **3 brokers** con `replicas: 3` y
+    `min.insync.replicas: 2` (matar un broker y ver que el sistema aguanta), y el panel de
+    **Grafana** con kafka-exporter para ver el lag.
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -249,6 +264,31 @@ docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.analytics
 
 curl -s localhost:8081/subjects   # ahora tambien market.analytics-value
+```
+
+### Verificar la Fase 6 (descartes y reintentos)
+```bash
+# Los topics de reintento y descarte que se crean solos
+docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list \
+  | grep -E "retry|DLT"
+
+# Ticks invalidos descartados con su motivo (arrancar el simulador con
+# AGGORA_INVALIDTICKEVERYN=500)
+docker exec -u vscode eager_allen bash -lc 'grep "DLT\]" /tmp/norm3.log | tail -3'
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic market.ticks.raw.DLT
+
+# Ordenes venenosas al DLT (arrancar el motor con AGGORA_FAILEVERYNORDERS=20), y comprobar
+# que el motor SIGUE procesando ordenes: la particion no se bloquea
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic orders.incoming.DLT
+docker exec -u vscode eager_allen bash -lc 'grep "matching\]" /tmp/matching4.log | tail -2'
+
+# Reintentos de la auditoria: parar Postgres y ver como los eventos esperan
+docker stop aggora-postgres && sleep 40
+docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic alerts.raised.retry-500
+docker start aggora-postgres
 ```
 
 ### Verificar la Fase 5 (cartera, alertas y auditoria)
