@@ -10,8 +10,8 @@
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>alerting-service</artifactId>
-  <name>alerting-service</name>
+  <artifactId>alerting-service-spring</artifactId>
+  <name>alerting-service-spring</name>
   <description>Deteccion de anomalias: picos de precio, feed parado y margen superado</description>
 
   <dependencies>

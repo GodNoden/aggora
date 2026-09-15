@@ -10,8 +10,8 @@
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>ingestion-normalizer</artifactId>
-  <name>ingestion-normalizer</name>
+  <artifactId>ingestion-normalizer-spring</artifactId>
+  <name>ingestion-normalizer-spring</name>
   <description>Consume market.ticks.raw, valida y normaliza, con commit manual de offsets</description>
 
   <dependencies>

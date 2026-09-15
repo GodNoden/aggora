@@ -10,8 +10,8 @@
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>market-data-simulator</artifactId>
-  <name>market-data-simulator</name>
+  <artifactId>market-data-simulator-spring</artifactId>
+  <name>market-data-simulator-spring</name>
   <description>Genera ticks de mercado (referencia real + interpolación sintética) hacia market.ticks.raw</description>
 
   <dependencies>

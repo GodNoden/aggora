@@ -10,8 +10,8 @@
     <version>0.1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>portfolio-risk</artifactId>
-  <name>portfolio-risk</name>
+  <artifactId>portfolio-risk-spring</artifactId>
+  <name>portfolio-risk-spring</name>
   <description>Posiciones y P&amp;L por cuenta desde las ejecuciones, con KTable</description>
 
   <dependencies>

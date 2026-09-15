@@ -31,9 +31,16 @@ fi
 
 LOG_DIR=${AGGORA_LOG_DIR:-/tmp}
 
+# El log mas reciente del servicio, sea de la implementacion que sea. Las dos no corren a la
+# vez para el mismo servicio (comparten topics y grupo), asi que el mas nuevo es el que vale.
+log_de() { # $1 = servicio
+  ls -t "$LOG_DIR/$1-spring.log" "$LOG_DIR/$1-quarkus.log" "$LOG_DIR/$1.log" 2>/dev/null | head -1
+}
+
 arranque() { # $1 = servicio
-  local log="$LOG_DIR/$1.log"
-  [ -f "$log" ] || { echo "?"; return; }
+  local log
+  log="$(log_de "$1")"
+  [ -n "$log" ] && [ -f "$log" ] || { echo "?"; return; }
   local spring
   spring="$(grep -h "Started .*Application in" "$log" | tail -1 \
     | sed -nE 's/.* in ([0-9]+\.[0-9]+) seconds \(process running for ([0-9]+\.[0-9]+)\).*/\1 ctx, \2 proceso/p')"
@@ -42,10 +49,30 @@ arranque() { # $1 = servicio
   sed -nE 's/.*started in ([0-9]+\.[0-9]+)s.*/\1/p' "$log" | tail -1 | grep . || echo "?"
 }
 
-pid_de() { # $1 = servicio; sirve para el jar de Spring y para el runner de Quarkus
-  pgrep -f "target/$1-.*\.jar" 2>/dev/null | head -1 \
-    || pgrep -f "/$1-[0-9.]*-runner" 2>/dev/null | head -1 \
-    || true
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# El proceso tiene que ser un java de verdad: si no, se cuela el shell que lanzo el servicio
+# (su linea de comandos tambien lleva el nombre del jar y su directorio de trabajo es el mismo).
+es_java() { [ "$(cat "/proc/$1/comm" 2>/dev/null)" = "java" ]; }
+
+pid_de() { # $1 = servicio
+  local pid candidato
+  # Spring: el nombre del jar lleva el del servicio.
+  for candidato in $(pgrep -f "target/$1-spring-.*\.jar" 2>/dev/null); do
+    if es_java "$candidato"; then echo "$candidato"; return; fi
+  done
+  # Quarkus en modo JVM: el runner se llama igual en todos los servicios, asi que se
+  # identifica por el directorio de trabajo del proceso (/proc/<pid>/cwd).
+  for candidato in $(pgrep -f "[j]ava -jar .*quarkus-app/quarkus-run.jar" 2>/dev/null); do
+    if es_java "$candidato" && [ "$(readlink "/proc/$candidato/cwd" 2>/dev/null)" = "$ROOT/services/quarkus/$1" ]; then
+      echo "$candidato"; return
+    fi
+  done
+  # Quarkus en binario nativo: el ejecutable se llama <servicio>-quarkus-...-runner.
+  for candidato in $(pgrep -f "/$1-quarkus-[0-9.]*-runner" 2>/dev/null); do
+    if es_java "$candidato"; then echo "$candidato"; return; fi
+  done
+  true
 }
 
 printf '%-24s %-22s %9s %7s %10s\n' "servicio" "arranque (s)" "RSS(MB)" "hilos" "ficheros"

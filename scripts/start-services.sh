@@ -69,14 +69,14 @@ for entry in "${SERVICES[@]}"; do
     echo "  $service: ya estaba en marcha"
     continue
   fi
-  if [ ! -f "$SERVICES_DIR/$service/target/$service-0.1.0-SNAPSHOT.jar" ]; then
+  if [ ! -f "$SERVICES_DIR/$service/target/$service-spring-0.1.0-SNAPSHOT.jar" ]; then
     echo "  $service: FALTA el jar. Compila antes: cd services && mvn -q -DskipTests package"
     continue
   fi
 
   (
     cd "$SERVICES_DIR/$service"
-    nohup java -jar "target/$service-0.1.0-SNAPSHOT.jar" > "$LOG_DIR/$service.log" 2>&1 &
+    nohup java -jar "target/$service-spring-0.1.0-SNAPSHOT.jar" > "$LOG_DIR/$service.log" 2>&1 &
   )
   # Se espera antes de seguir: es lo que evita la carrera de topics.
   esperar_listo "$service" "$expected" || true
