@@ -3,7 +3,7 @@ package com.aggora.simulator.config;
 import java.util.List;
 
 import com.aggora.simulator.domain.Exchange;
-import com.aggora.simulator.domain.TickEvent.AssetClass;
+import com.aggora.avro.AssetClass;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

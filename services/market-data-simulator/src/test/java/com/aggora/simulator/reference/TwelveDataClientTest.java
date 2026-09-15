@@ -6,7 +6,7 @@ import java.util.Map;
 import com.aggora.simulator.config.AggoraProperties;
 import com.aggora.simulator.config.AggoraProperties.FeedProvider;
 import com.aggora.simulator.domain.Exchange;
-import com.aggora.simulator.domain.TickEvent.AssetClass;
+import com.aggora.avro.AssetClass;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;

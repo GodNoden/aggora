@@ -3,7 +3,7 @@ package com.aggora.simulator.producer;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.aggora.simulator.config.AggoraProperties;
-import com.aggora.simulator.domain.TickEvent;
+import com.aggora.avro.Tick;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,27 +25,27 @@ public class TickProducer {
 
     private static final Logger log = LoggerFactory.getLogger(TickProducer.class);
 
-    private final KafkaTemplate<String, TickEvent> kafkaTemplate;
+    private final KafkaTemplate<String, Tick> kafkaTemplate;
     private final String topic;
     private final AtomicLong sent = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
 
-    public TickProducer(KafkaTemplate<String, TickEvent> kafkaTemplate, AggoraProperties props) {
+    public TickProducer(KafkaTemplate<String, Tick> kafkaTemplate, AggoraProperties props) {
         this.kafkaTemplate = kafkaTemplate;
         this.topic = props.topics().ticksRaw();
     }
 
-    public void send(TickEvent tick) {
-        kafkaTemplate.send(topic, tick.symbol(), tick).whenComplete((result, ex) -> {
+    public void send(Tick tick) {
+        kafkaTemplate.send(topic, tick.getSymbol(), tick).whenComplete((result, ex) -> {
             if (ex != null) {
                 failed.incrementAndGet();
-                log.error("[produce] fallo enviando {}: {}", tick.symbol(), ex.getMessage());
+                log.error("[produce] fallo enviando {}: {}", tick.getSymbol(), ex.getMessage());
                 return;
             }
             long total = sent.incrementAndGet();
             if (total % 1000 == 0) {
                 log.info("[produce] {} ticks enviados | último: {} part={} offset={} | fallos={}",
-                        total, tick.symbol(),
+                        total, tick.getSymbol(),
                         result.getRecordMetadata().partition(),
                         result.getRecordMetadata().offset(),
                         failed.get());

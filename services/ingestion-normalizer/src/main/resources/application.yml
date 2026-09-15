@@ -12,19 +12,30 @@ spring:
       # Sin offset guardado, empieza por el principio del topic.
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+      # Deserializador Avro de Confluent: lee el ID de esquema que lleva el mensaje,
+      # pide el esquema al registry y lo convierte. Los mensajes son binarios.
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
       max-poll-records: 200
       properties:
-        # El productor no manda cabeceras de tipo, así que aquí se declara a qué
-        # clase se convierte el JSON.
-        spring.json.use.type.headers: false
-        spring.json.value.default.type: com.aggora.normalizer.domain.TickEvent
-        spring.json.trusted.packages: com.aggora.normalizer.domain
+        # Devolver la clase generada (com.aggora.avro.Tick) en vez de un GenericRecord.
+        specific.avro.reader: true
         # Cuánto puede estar el proceso sin llamar a poll() antes de que el broker
         # lo expulse del grupo (y dispare un rebalanceo).
         max.poll.interval.ms: 300000
+    # La Fase 2 convierte a este servicio en consumidor Y productor: publica el
+    # evento canónico en market.ticks.canonical con su propio esquema.
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    # Común a consumidor y productor.
+    properties:
+      # Dentro de aggora-net se habla por nombre, como con el broker.
+      schema.registry.url: http://schema-registry:8081
     listener:
-      # CLAVE de la fase: el offset lo confirma el código, no el framework.
+      # CLAVE: el offset lo confirma el código, no el framework.
       ack-mode: manual_immediate
       concurrency: 1
       # Si el normalizador arranca antes que el simulador, el topic aún no existe:
@@ -35,6 +46,8 @@ spring:
 aggora:
   topics:
     ticks-raw: market.ticks.raw
+    # El normalizer es el productor de este topic, así que lo declara él.
+    ticks-canonical: market.ticks.canonical
   # Retardo artificial por mensaje, en ms. 0 = desactivado.
   # Ponlo a 300 para poder matar la instancia a media faena y ver, al reiniciar,
   # que los mensajes no confirmados se vuelven a procesar (at-least-once).

@@ -7,7 +7,9 @@ spring:
     bootstrap-servers: kafka:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      # Serializador Avro de Confluent: registra el esquema en el Schema Registry
+      # (subject market.ticks.raw-value) y escribe el ID del esquema en cada mensaje.
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
       # acks=all: el líder espera a sus réplicas. Con RF=1 en dev no cambia nada,
       # pero deja fijada la intención para cuando haya clúster (Fase 6).
       acks: all
@@ -18,9 +20,11 @@ spring:
         max.in.flight.requests.per.connection: 5
         # Agrupa mensajes en lotes: menos peticiones, más throughput.
         linger.ms: 20
-        # Sin cabeceras __TypeId__: el contrato es el JSON, no la clase Java del emisor.
-        # (En la Fase 2 este hueco lo cubre el Schema Registry.)
-        spring.json.add.type.headers: false
+
+    # Comun a productor y consumidor del servicio.
+    properties:
+      # Dentro de aggora-net se habla por nombre, como con el broker.
+      schema.registry.url: http://schema-registry:8081
 
   task:
     scheduling:

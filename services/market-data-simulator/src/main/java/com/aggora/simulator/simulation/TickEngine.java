@@ -10,7 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.aggora.simulator.config.AggoraProperties;
-import com.aggora.simulator.domain.TickEvent;
+import com.aggora.avro.Tick;
+import com.aggora.avro.TickSource;
 import com.aggora.simulator.pricing.PriceWalk;
 import com.aggora.simulator.producer.TickProducer;
 
@@ -69,7 +70,7 @@ public class TickEngine {
             double reference = references.get(instrument.symbol()).doubleValue();
             PriceWalk walk = walkOf(instrument.symbol(), reference);
             double price = walk.next(reference);
-            producer.send(toEvent(instrument, price, TickEvent.TickSource.SYNTHETIC, now));
+            producer.send(toTick(instrument, price, TickSource.SYNTHETIC, now));
         }
     }
 
@@ -80,7 +81,7 @@ public class TickEngine {
     public void applyReference(AggoraProperties.Instrument instrument, double price) {
         walkOf(instrument.symbol(), price).reset(price);
         references.put(instrument.symbol(), BigDecimal.valueOf(price));
-        producer.send(toEvent(instrument, price, TickEvent.TickSource.REFERENCE, Instant.now()));
+        producer.send(toTick(instrument, price, TickSource.REFERENCE, Instant.now()));
     }
 
     public BigDecimal referenceOf(String symbol) {
@@ -94,23 +95,30 @@ public class TickEngine {
         });
     }
 
-    private TickEvent toEvent(AggoraProperties.Instrument instrument, double price,
-                              TickEvent.TickSource source, Instant eventTime) {
+    /**
+     * Construye el evento Avro. Ojo con los dos enums que se llaman igual:
+     * com.aggora.avro.Exchange es el del CONTRATO (lo que se registra en el
+     * Schema Registry) y com.aggora.simulator.domain.Exchange es el del DOMINIO
+     * (el que sabe los horarios de cada mercado). Se convierten por nombre.
+     */
+    private Tick toTick(AggoraProperties.Instrument instrument, double price,
+                        TickSource source, Instant eventTime) {
         AggoraProperties.Simulation sim = props.simulation();
-        int size = source == TickEvent.TickSource.REFERENCE
+        int size = source == TickSource.REFERENCE
                 ? 0
                 : sim.minSize() + random.nextInt(Math.max(1, sim.maxSize() - sim.minSize() + 1));
         long sequence = sequences.computeIfAbsent(instrument.symbol(), s -> new AtomicLong()).incrementAndGet();
-        return new TickEvent(
-                UUID.randomUUID().toString(),
-                instrument.symbol(),
-                instrument.assetClass(),
-                instrument.exchange(),
-                instrument.currency(),
-                BigDecimal.valueOf(price).setScale(4, RoundingMode.HALF_UP),
-                size,
-                eventTime,
-                source,
-                sequence);
+        return Tick.newBuilder()
+                .setEventId(UUID.randomUUID().toString())
+                .setSymbol(instrument.symbol())
+                .setAssetClass(instrument.assetClass())
+                .setExchange(com.aggora.avro.Exchange.valueOf(instrument.exchange().name()))
+                .setCurrency(instrument.currency())
+                .setPrice(BigDecimal.valueOf(price).setScale(4, RoundingMode.HALF_UP))
+                .setSize(size)
+                .setEventTime(eventTime)
+                .setSource(source)
+                .setSequence(sequence)
+                .build();
     }
 }
