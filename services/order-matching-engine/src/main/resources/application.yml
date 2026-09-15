@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: order-matching-engine
+
+  kafka:
+    # Nombre interno dentro de aggora-net. Nunca localhost (ver README).
+    bootstrap-servers: kafka:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      acks: all
+      # ESTA linea es la que convierte al productor en transaccional. Spring Boot le
+      # anade un sufijo por instancia para que dos instancias no choquen.
+      transaction-id-prefix: tx-order-matching-
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: order-matching-engine
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      properties:
+        specific.avro.reader: true
+        # EXACTLY-ONCE tambien se lee asi: read_committed significa "no me ensenes nada
+        # que venga de una transaccion que no se ha confirmado". Es la mitad del
+        # contrato, la otra mitad es el productor transaccional.
+        isolation.level: read_committed
+        max.poll.interval.ms: 300000
+    properties:
+      # Dentro de aggora-net se habla por nombre, como con el broker.
+      schema.registry.url: http://schema-registry:8081
+    listener:
+      # Si el normalizador arranca antes que el simulador, el topic aun no existe.
+      missing-topics-fatal: false
+      log-container-config: false
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    orders-incoming: orders.incoming
+    executions: orders.executions
+  # Experimento de exactly-once: si es > 0, cada N ordenes se lanza una excepcion
+  # DESPUES de publicar las ejecuciones. Con la transaccion, eso las aborta y el offset
+  # no avanza, asi que la orden se reencuentra al reiniciar. 0 = desactivado.
+  fail-every-n-orders: 0
