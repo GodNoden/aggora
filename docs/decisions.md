@@ -215,3 +215,15 @@ Dos incidentes que valen más que la teoría:
 | Coste medio solo cambia al **abrir o aumentar**; al cerrar se materializa el resultado | Es la aritmetica de una cartera de verdad. Si la operacion da la vuelta a la posicion, el resto abre al precio nuevo. Los 3 tests cubren los tres casos |
 | Limite de margen **global** (configurable) | Suficiente para el objetivo (producir `marginBreach` y que alerting levante la alerta). En un sistema real seria por cuenta e instrumento, con reglas de margen de verdad |
 
+### Fase 5 (continuacion): alertas y auditoria
+
+| Decisión | Por qué |
+|---|---|
+| El feed parado se detecta con un **punctuator**, no con un filtro | Detectar que algo NO llega no se puede hacer reaccionando a los mensajes. El punctuator se ejecuta por reloj, haya datos o no |
+| Picos **una vez por episodio** + **histéresis** (dispara a 40 bps, rearma a 20) | La primera versión produjo 36.000 alertas en dos minutos: un aviso repetido no es un aviso. Con un solo umbral, un precio que oscila alrededor avisa sin parar. Entre las dos cosas el ruido bajó ~65x. Pendiente fino: comparar contra la **volatilidad medida** (que ya calculamos) en vez de un umbral fijo |
+| `audit.events` **compactado** con key = entidad | El publicador del outbox puede repetir un mensaje (at-least-once). Con topic compactado y clave por entidad, el duplicado es inofensivo: se queda como el mismo último estado |
+| El evento auditado se guarda en **JSON** (codificador de Avro) | Una auditoría se lee: con SQL se ve qué pasó sin descodificar. Limitación conocida: los campos `decimal` salen como bytes escapados por el codificador JSON de Avro; el resto es legible y todo es consultable por entidad y fecha |
+| Índice **único** por (topic, partición, offset) + `on conflict do nothing` | Kafka entrega at-least-once. Así la tabla de auditoría también es idempotente por su cuenta, sin depender del consumidor |
+| Fecha al insertar como **`OffsetDateTime`** | El driver de Postgres no sabe convertir un `Instant` y falla solo en marcha (`Can't infer the SQL type`). Costó 327 errores en el log descubrirlo |
+| Deuda: el camino con Postgres no tiene test de integración | Lo correcto es **Testcontainers**, como pide la estrategia de pruebas del spec. De momento se verifica en vivo; queda anotado |
+

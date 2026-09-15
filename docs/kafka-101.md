@@ -463,3 +463,61 @@ evita duplicados de UN productor reintentando UN mensaje. La transaccion evita
 duplicados entre VARIOS mensajes y offsets, y sobrevive a que el proceso se caiga en
 medio. Son complementarias: la transaccion necesita idempotencia por debajo.
 
+---
+
+## 12. La Fase 5 en la práctica: cartera, alertas y el patrón outbox
+
+**Una KTable que se construye desde un stream, pero al reves.** En la Fase 4 el motor
+producia ejecuciones. Aqui cada ejecucion se convierte en **dos** movimientos de posicion
+(el comprador suma, el vendedor resta), se vuelven a agrupar por cuenta y simbolo y se
+acumulan. Fijate en el detalle: la clave del stream original (simbolo) NO es la clave del
+estado que queremos (cuenta). Cambiar la clave obliga a **reparticionar**, y Kafka Streams
+mete el topic de reparticion el solo. Las posiciones viven en un state store con su
+changelog, asi que sobreviven a un reinicio.
+
+**Detectar lo que NO llega.** Las reglas de alerta normales reaccionan a un dato. Detectar
+que un instrumento se ha quedado callado no se puede hacer asi: si no llegan datos, no hay
+nada que reaccione. Para eso estan los **punctuators**, funciones que el propio Streams
+llama cada X tiempo de reloj, haya datos o no. Es la herramienta para "vigilar la
+ausencia".
+
+**Dos lecciones que salieron en vivo (y que valen mas que la teoria):**
+
+1. **Una alerta que se repite no es una alerta.** La primera version avisaba en CADA
+   actualizacion de ventana que superara el umbral: 36.000 alertas en dos minutos, basura
+   directamente inservible. Se arregla avisando **una vez por episodio** y rearmando la
+   regla cuando el valor vuelve a la normalidad.
+2. **Cuidado con el umbral unico.** Con una sola frontera, un valor que oscila alrededor de
+   ella avisa sin parar (avisa, baja un pelo, rearma, vuelve a subir, avisa...). La solucion
+   clasica es la **histeresis**: avisar a 40 y no rearmar hasta bajar de 20, igual que un
+   termostato. Con las dos cosas, el ruido bajo unas 65 veces.
+   Y la mejora que queda pendiente es mejor aun: en vez de un umbral fijo en puntos basicos,
+   comparar la desviacion contra la **volatilidad medida** del instrumento (que ya calculamos
+   en `market.analytics`). Un mismo movimiento es normal en el oro y sospechoso en un bono.
+
+**El patron TRANSACTIONAL OUTBOX** (el plato fuerte de la fase). El problema: guardar el
+evento en Postgres y publicarlo en Kafka son dos escrituras en dos sistemas y no hay forma
+de hacerlas a la vez. Si guardas y te caes antes de publicar, el evento se pierde para los
+demas; si publicas y te caes antes de guardar, no queda constancia.
+
+La vuelta de tuerca: en **una sola transaccion de base de datos** se guardan dos cosas, el
+evento auditado y un "recado" en la tabla `audit_outbox` diciendo "esto hay que publicarlo".
+Eso si es atomico, porque es la misma base de datos y las transacciones de base de datos ya
+saben hacerlo. Despues, un publicador aparte lee los recados pendientes y los manda a Kafka,
+marcandolos como publicados.
+
+```
+  consumidor --> [ transaccion Postgres: audit_events + audit_outbox ] --> publicador --> audit.events
+                        (atomico: o los dos, o ninguno)                      (at-least-once)
+```
+
+Lo que se gana y lo que se paga:
+
+- **Nada se pierde**: si el publicador se cae, el recado sigue en la tabla y al volver a
+  arrancar lo manda.
+- **Se puede publicar dos veces**: el publicador puede caerse despues de publicar y antes de
+  marcar. Eso es at-least-once, y aqui no hace dano porque el topic es **compactado** y la
+  clave es la entidad: el duplicado se queda como el mismo ultimo estado.
+- **La base de datos es la fuente de verdad**: se puede consultar que paso, cuando, y si ya
+  se publico o no. Con SQL, sin descodificar nada.
+

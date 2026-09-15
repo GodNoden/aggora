@@ -122,7 +122,7 @@
   y prioridad por tiempo) y el experimento de exactly-once en vivo: con fallos
   inyectados cada 10 ordenes, un consumidor `read_committed` veia **121** mensajes y uno
   `read_uncommitted` **168** (los 47 abortados existen en el log pero no cuentan).
-- 🔄 **Fase 5 (en curso)** — `portfolio-risk` ya funciona: abre cada ejecucion en **dos**
+- 🔄 **Fase 5 (casi)** — `portfolio-risk` ya funciona: abre cada ejecucion en **dos**
   movimientos (el comprador suma y el vendedor resta), los re-clava por cuenta+simbolo y
   los acumula en una **KTable** de posiciones (coste medio, P&L realizado, exposicion y
   aviso de margen) hacia `portfolio.updates`.
@@ -130,8 +130,17 @@
   posicion), y en vivo posiciones reales con su divisa. De paso, el **primer cambio de
   esquema compatible** del proyecto: se anadio `currency` con valor por defecto a Order y
   Execution, y el registry lo acepto como **version 2** sin romper a nadie.
-  **Pendiente de la fase**: `alerting-service` (alertas por ventana) y `audit-log`
-  (transactional outbox con Postgres, que ya esta levantado).
+  - `alerting-service` (hecho): tres reglas hacia `alerts.raised` — **pico de precio**
+    (comparando el ultimo precio con la media de su ventana), **margen superado** (la marca
+    que pone portfolio-risk) y **feed parado** (con un *punctuator*, porque hay que detectar
+    la AUSENCIA de datos). En vivo salieron dos lecciones y las dos estan arregladas: avisar
+    una vez por episodio y usar **histeresis** (disparar a 40 puntos basicos, rearmar a 20),
+    que bajo el ruido de ~36.000 avisos a 686 en el mismo tiempo.
+  - `audit-log` (hecho): **transactional outbox** con Postgres. El evento y su recado de
+    publicacion se escriben en la MISMA transaccion de base de datos; un publicador los manda
+    despues al topic **compactado** `audit.events`. Verificado en vivo: 122.000 eventos
+    auditados y la bandeja de salida drenandose a `pendientes = 0`.
+  - Verificacion: los comandos de abajo.
 - 🧱 **Infra añadida en la Fase 2** — `KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"`
   (un typo en un nombre de topic debe fallar, no crear un topic fantasma de 1
   partición) y un servicio `kafka-init` que crea los topics internos que no declara
@@ -240,6 +249,24 @@ docker exec aggora-kafka /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.analytics
 
 curl -s localhost:8081/subjects   # ahora tambien market.analytics-value
+```
+
+### Verificar la Fase 5 (cartera, alertas y auditoria)
+```bash
+# Alertas (los tres tipos) y feed parado
+docker exec -u vscode eager_allen bash -lc 'grep "alerta\]" /tmp/alerting.log | tail -5'
+
+# Auditoria: lo que hay guardado en Postgres, en SQL y legible
+docker exec aggora-postgres psql -U aggora -d aggora \
+  -c "select entity_type, count(*) from audit_events group by 1 order by 2 desc;"
+docker exec aggora-postgres psql -U aggora -d aggora \
+  -c "select count(*) filter (where published_at is null) as pendientes from audit_outbox;"
+docker exec aggora-postgres psql -U aggora -d aggora \
+  -c "select entity_id, left(payload, 80) from audit_events order by id desc limit 3;"
+
+# El topic de auditoria es compactado
+docker exec aggora-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+  --describe --topic audit.events | head -2
 ```
 
 ### Verificar la Fase 5 (cartera)
