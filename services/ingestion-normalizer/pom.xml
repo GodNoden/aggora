@@ -20,8 +20,8 @@
       <artifactId>spring-boot-starter</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.springframework.kafka</groupId>
-      <artifactId>spring-kafka</artifactId>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-kafka</artifactId>
     </dependency>
     <!-- Jackson: el JsonDeserializer de spring-kafka lo necesita y en spring-kafka
          es una dependencia opcional. Sin esto, el consumidor revienta al arrancar

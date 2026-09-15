@@ -7,7 +7,7 @@ spring:
     bootstrap-servers: kafka:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
       # acks=all: el líder espera a sus réplicas. Con RF=1 en dev no cambia nada,
       # pero deja fijada la intención para cuando haya clúster (Fase 6).
       acks: all

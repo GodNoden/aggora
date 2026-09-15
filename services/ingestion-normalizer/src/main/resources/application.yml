@@ -12,7 +12,7 @@ spring:
       # Sin offset guardado, empieza por el principio del topic.
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
       max-poll-records: 200
       properties:
         # El productor no manda cabeceras de tipo, así que aquí se declara a qué
