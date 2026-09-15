@@ -1,0 +1,95 @@
+{
+  "type": "record",
+  "name": "CanonicalTick",
+  "namespace": "com.aggora.avro.canonical",
+  "doc": "Version 2 propuesta en el laboratorio de evolucion de esquemas (Fase 7): es canonical.avsc con un campo NUEVO y OPCIONAL al final. Un campo con valor por defecto es lo que hace que el cambio sea COMPATIBLE hacia atras: un consumidor antiguo (que no conoce venueMic) sigue leyendo los mensajes nuevos, simplemente ignora el campo. El valor por defecto no es un adorno: es lo que permite que un consumidor NUEVO lea los mensajes ANTIGUOS, que no traen el campo.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "Se conserva el del tick original, para poder rastrear el mismo evento en los dos topics."
+    },
+    {
+      "name": "symbol",
+      "type": "string"
+    },
+    {
+      "name": "assetClass",
+      "type": {
+        "type": "enum",
+        "name": "AssetClass",
+        "symbols": ["EQUITY", "FX", "COMMODITY"]
+      }
+    },
+    {
+      "name": "exchange",
+      "type": {
+        "type": "enum",
+        "name": "Exchange",
+        "symbols": ["NYSE", "NASDAQ", "EURONEXT", "SSE", "FX", "COMMODITY"]
+      }
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "doc": "Divisa ISO-4217, ya validada contra el catalogo de divisas."
+    },
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 18,
+        "scale": 4
+      }
+    },
+    {
+      "name": "size",
+      "type": "int"
+    },
+    {
+      "name": "eventTime",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Cuando ocurrio el tick (UTC), tal cual venia del crudo."
+    },
+    {
+      "name": "source",
+      "type": {
+        "type": "enum",
+        "name": "TickSource",
+        "symbols": ["REFERENCE", "SYNTHETIC"]
+      }
+    },
+    {
+      "name": "sequence",
+      "type": "long"
+    },
+    {
+      "name": "normalizedAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Cuando lo proceso el normalizer. La diferencia con eventTime es el retraso de la ingestia."
+    },
+    {
+      "name": "originPartition",
+      "type": "int",
+      "doc": "Particion de market.ticks.raw de la que salio. Junto al offset, es la trazabilidad del dato."
+    },
+    {
+      "name": "originOffset",
+      "type": "long",
+      "doc": "Offset de origen en market.ticks.raw."
+    },
+    {
+      "name": "venueMic",
+      "type": "string",
+      "default": "",
+      "doc": "NUEVO en la version 2: codigo MIC del centro de negociacion (XNAS, XPAR...). Vacio = no se sabe. El valor por defecto es obligatorio para que el cambio sea compatible."
+    }
+  ]
+}
