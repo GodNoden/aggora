@@ -1,0 +1,180 @@
+spring:
+  application:
+    name: market-data-simulator
+
+  kafka:
+    # Nombre interno dentro de aggora-net. Nunca localhost (ver README).
+    bootstrap-servers: kafka:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # acks=all: el líder espera a sus réplicas. Con RF=1 en dev no cambia nada,
+      # pero deja fijada la intención para cuando haya clúster (Fase 6).
+      acks: all
+      compression-type: lz4
+      properties:
+        # Productor idempotente: un reintento por fallo transitorio no duplica el mensaje.
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        # Agrupa mensajes en lotes: menos peticiones, más throughput.
+        linger.ms: 20
+        # Sin cabeceras __TypeId__: el contrato es el JSON, no la clase Java del emisor.
+        # (En la Fase 2 este hueco lo cubre el Schema Registry.)
+        spring.json.add.type.headers: false
+
+  task:
+    scheduling:
+      # Tres hilos: generación de ticks + un poll por proveedor. Sin esto, una
+      # petición HTTP lenta a un proveedor pararía la generación de ticks.
+      pool:
+        size: 3
+
+aggora:
+  topics:
+    ticks-raw: market.ticks.raw
+
+  # Cada cuánto se emite un tick sintético por instrumento abierto (5/s).
+  tick-interval-ms: 200
+
+  simulation:
+    volatility-per-tick: 0.0006  # desviación típica del shock, relativa al precio
+    mean-reversion: 0.02         # cuánto tira cada tick hacia la referencia real
+    max-deviation: 0.015         # banda máxima: ±1,5% alrededor de la referencia
+    min-size: 1
+    max-size: 500
+
+  # --- Fuente principal: acciones de EEUU, ETFs, forex y oro spot ---
+  twelve-data:
+    base-url: https://api.twelvedata.com
+    # Sin key el simulador arranca igual: precios semilla y ticks 100% sintéticos.
+    #   export TWELVEDATA_API_KEY=...
+    api-key: ${TWELVEDATA_API_KEY:}
+    poll-interval-ms: 900000     # 15 min
+    initial-delay-ms: 5000
+    # DOS límites en el plan free: 8 créditos/minuto y ~800/día.
+    # Y un crédito = un SÍMBOLO pedido (no una petición). Con los 7 instrumentos de
+    # esta fuente, cada poll gasta 7 créditos en 3 peticiones HTTP: cabe.
+    daily-credit-budget: 750
+
+  # --- Fuente secundaria: lo que Twelve Data no da gratis (Euronext y Shanghai) ---
+  # Su plan free son 25 peticiones/día y 1 petición/SEGUNDO, y no tiene endpoint por
+  # lotes: una petición por símbolo. De ahí que se consulte cada 3 h en vez de cada
+  # 15 min: la interpolación sintética rellena el hueco entre referencias.
+  alpha-vantage:
+    base-url: https://www.alphavantage.co
+    #   export ALPHAVANTAGE_API_KEY=...
+    api-key: ${ALPHAVANTAGE_API_KEY:}
+    poll-interval-ms: 10800000   # 3 h
+    initial-delay-ms: 10000
+    # Cuentas: Euronext abierta 8,5 h -> 3 polls x 3 símbolos = 9; Shanghai 4,5 h
+    # -> 2 polls x 2 símbolos = 4. Total ~13/día, con margen sobre las 25.
+    daily-request-budget: 18
+
+  # feed: de dónde sale el precio de referencia
+  #   TWELVE_DATA    -> precio real cada 15 min
+  #   ALPHA_VANTAGE  -> precio real cada 3 h
+  #   NONE           -> solo precio semilla y ticks sintéticos
+  # feed-symbol es el símbolo tal y como lo espera ESE proveedor: Alpha Vantage
+  # lleva el mercado dentro (MC.PAR = París, 600519.SHH = Shanghai).
+  #
+  # Comprobado el 2026-09-14 contra las dos APIs: Twelve Data free sirve EEUU,
+  # forex, oro y ETFs; Euronext, Shanghai y el crudo spot piden plan de pago allí,
+  # pero Alpha Vantage free sí sirve Euronext (MC.PAR) y Shanghai (600519.SHH).
+  instruments:
+    # --- NYSE / NASDAQ (USD, 09:30-16:00 ET) ---
+    - symbol: AAPL
+      asset-class: EQUITY
+      exchange: NASDAQ
+      currency: USD
+      seed-price: 333.47
+      feed: TWELVE_DATA
+      feed-symbol: AAPL
+      feed-exchange: NASDAQ
+    - symbol: JPM
+      asset-class: EQUITY
+      exchange: NYSE
+      currency: USD
+      seed-price: 285.40
+      feed: TWELVE_DATA
+      feed-symbol: JPM
+      feed-exchange: NYSE
+    - symbol: XOM
+      asset-class: EQUITY
+      exchange: NYSE
+      currency: USD
+      seed-price: 112.80
+      feed: TWELVE_DATA
+      feed-symbol: XOM
+      feed-exchange: NYSE
+    # --- Euronext Paris (EUR, 09:00-17:30 CET) ---
+    - symbol: MC
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 417.45
+      feed: ALPHA_VANTAGE
+      feed-symbol: MC.PAR
+    - symbol: OR
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 384.20
+      feed: ALPHA_VANTAGE
+      feed-symbol: OR.PAR
+    - symbol: AIR
+      asset-class: EQUITY
+      exchange: EURONEXT
+      currency: EUR
+      seed-price: 195.00
+      feed: ALPHA_VANTAGE
+      feed-symbol: AIR.PAR
+    # --- Shanghai (CNY, 09:30-11:30 y 13:00-15:00 CST) ---
+    - symbol: "600519"
+      asset-class: EQUITY
+      exchange: SSE
+      currency: CNY
+      seed-price: 1277.96
+      feed: ALPHA_VANTAGE
+      feed-symbol: 600519.SHH
+    - symbol: "601398"
+      asset-class: EQUITY
+      exchange: SSE
+      currency: CNY
+      seed-price: 8.22
+      feed: ALPHA_VANTAGE
+      feed-symbol: 601398.SHH
+    # --- FX (24x5). currency = divisa de cotización del par ---
+    - symbol: EUR/USD
+      asset-class: FX
+      exchange: FX
+      currency: USD
+      seed-price: 1.1533
+      feed: TWELVE_DATA
+      feed-symbol: EUR/USD
+    - symbol: USD/CNY
+      asset-class: FX
+      exchange: FX
+      currency: CNY
+      seed-price: 6.7119
+      feed: TWELVE_DATA
+      feed-symbol: USD/CNY
+    # --- Commodities ---
+    # Oro: spot real (XAU/USD), 24x5.
+    - symbol: XAU/USD
+      asset-class: COMMODITY
+      exchange: COMMODITY
+      currency: USD
+      seed-price: 4277.53
+      feed: TWELVE_DATA
+      feed-symbol: XAU/USD
+    # Crudo: el spot (WTI/USD) pide plan de pago en Twelve Data y en Alpha Vantage
+    # solo hay serie diaria, así que usamos el ETF USO, que sí da precio vivo.
+    # OJO: es el precio del ETF, NO el del barril, y cotiza en horario de EEUU.
+    - symbol: USO
+      asset-class: COMMODITY
+      exchange: NYSE
+      currency: USD
+      seed-price: 156.65
+      feed: TWELVE_DATA
+      feed-symbol: USO
+      feed-exchange: NYSE
