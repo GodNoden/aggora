@@ -29,6 +29,7 @@
     <module>analytics-streams</module>
     <module>portfolio-risk</module>
     <module>order-matching-engine</module>
+    <module>alerting-service</module>
   </modules>
 
   <properties>

@@ -1,0 +1,29 @@
+# Las alertas en Quarkus (Fase 8).
+#
+# El bloque `aggora:` es EL MISMO que el de la version Spring, con los mismos umbrales (40 bps para
+# disparar, 20 para rearmar) y los mismos tiempos de feed parado.
+#
+# Como en la cartera: sin servidor web, sin metricas y sin sonda, porque la version Spring tampoco
+# las tiene. Lo que cambia respecto a Spring es el montaje del motor (ver application.properties).
+
+quarkus:
+  application:
+    name: alerting-service
+  banner:
+    enabled: false
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    analytics: market.analytics
+    portfolio-updates: portfolio.updates
+    alerts-raised: alerts.raised
+  # Desviacion minima (en puntos basicos) entre el ultimo precio y la media de la ventana
+  # para considerar que es un pico. 40 bps = 0,4%.
+  price-spike-bps: 40
+  # Histeresis: para volver a considerar "normal" el precio hay que bajar de aqui. Evita
+  # que un precio que oscila alrededor del umbral este avisando sin parar.
+  price-spike-rearm-bps: 20
+  # Feed parado: si un simbolo lleva mas de este tiempo sin datos, se avisa.
+  stale-feed-timeout: 30s
+  stale-feed-check-interval: 10s
