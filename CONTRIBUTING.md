@@ -277,10 +277,29 @@
   estricta con las propiedades vacías, `skipExecutionIf`, las claves con puntos en YAML,
   Jackson 2 vs 3 y el `RecordMetadata` que no existe en un `Emitter`) están en
   `docs/decisions.md`.
-- ⏭️ **Fase 8 (lo que queda)** — los otros 5 servicios (los 3 de Kafka Streams con la extensión
-  de Quarkus), con `group.id` propio y topics de salida propios para poder correr los dos
-  stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec pide *at least
-  two*) con las medidas de arranque y memoria.
+- ✅ **Fase 8 — tercer servicio portado: `analytics-streams`** (hecho).
+  `services/quarkus/analytics-streams` con la **extensión de Kafka Streams** de Quarkus: la
+  topología se *produce* (`@Produces Topology`) y **las dos topologías se copiaron tal cual**
+  (solo cambia el tipo de la configuración), que es la conclusión de la fase: la API de Streams
+  no cambia, cambia quién la envuelve. La extensión trae la **sonda de salud del motor**
+  (`/q/health`: estado y topics disponibles) que en Spring fueron 40 líneas propias, y
+  `quarkus.kafka-streams.topics` **espera a que existan los topics**, que es la carrera que en
+  la Fase 6 se resolvió a mano en el script.
+  Verificado en vivo: con el mismo `application-id` y los mismos topics, el port **consumió lo
+  que producía el normalizer de Spring**, calculó métricas (`market.analytics` a 242 msg/s) y la
+  **consulta interactiva devolvió el mismo JSON**. Los **6 tests de topología**, portados y en
+  verde. Números: arranque **1,548 s** frente a 3,464 s; el RSS salió algo más alto (505 frente
+  a 455 MB), pero en este servicio manda el estado y las dos medidas no se tomaron en el mismo
+  momento.
+  **Hallazgo grande, y no es de frameworks**: Avro 1.12.2 (el que trae el BOM de Quarkus)
+  **enciende el validador de clases**, y los serdes de Streams revientan con
+  `Forbidden com.aggora.avro.canonical.CanonicalTick`; la implementación Spring usa 1.12.1 y por
+  eso hoy no le pasa. Arreglado con `quarkus.avro.trusted-packages` y, en los tests,
+  `org.apache.avro.SERIALIZABLE_PACKAGES`.
+- ⏭️ **Fase 8 (lo que queda)** — los otros 4 servicios (matching, portfolio y alerting, los dos
+  últimos de Kafka Streams, y audit-log), con `group.id` propio y topics de salida propios para
+  poder correr los dos stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec
+  pide *at least two*) con las medidas de arranque y memoria.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
@@ -524,6 +543,33 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-
 # Para volver a la version Spring
 pkill -TERM -f "quarkus-app/quarkus-run.jar"
 bash scripts/start-services.sh
+```
+
+### Verificar la Fase 8 (el port de la analítica)
+```bash
+# Parar la analítica de Spring y arrancar la de Quarkus (mismo puerto, mismo application-id)
+pkill -TERM -f "target/analytics-streams-spring"
+cd /workspaces/aggora/services/quarkus/analytics-streams
+setsid java -jar target/quarkus-app/quarkus-run.jar > /tmp/analytics-streams-quarkus.log 2>&1 &
+
+# Lo que hay que ver:
+#   analytics-streams 0.1.0-SNAPSHOT on JVM (powered by Quarkus 3.39.3) started in 1.548s
+#   [topics] market.analytics ya existe, no se toca
+#   [metricas] JPM HOPPING 2026-09-15T19:37:... | ticks=... vwap=... volatilidad=...
+grep -E "started in|\[topics\]|\[metricas\]" /tmp/analytics-streams-quarkus.log | head
+
+# La consulta interactiva: el MISMO JSON que devuelve la de Spring
+curl -s 'localhost:8085/analytics?symbol=EUR/USD&minutes=3' | head -c 300
+
+# La sonda de salud del motor, que trae la extensión (en Spring eran 40 líneas propias)
+curl -s localhost:8085/q/health
+
+# Y las métricas, con las mismas etiquetas que la versión Spring
+curl -s localhost:8085/q/metrics | grep jvm_threads_live_threads
+
+# Para volver a la versión Spring
+pkill -TERM -f "quarkus-app/quarkus-run.jar"
+cd /workspaces/aggora && bash scripts/start-services.sh
 ```
 
 ### Verificar la Fase 8 (el port del simulador)

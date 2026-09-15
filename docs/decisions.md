@@ -475,3 +475,49 @@ las dos implementaciones, que se comportan igual: `open.isEmpty()` y no se pide 
 se comprobo contra la API de verdad es el caso de cuota agotada: Alpha Vantage responde 200 con
 `Information` en vez de dar un error HTTP, que es exactamente el caso que cubre
 `AlphaVantageClientTest.cuota_agotada_no_es_un_precio`.
+
+### Fase 8: el port de `analytics-streams` a Quarkus
+
+El servicio que el spec señalaba como el interesante, porque aquí la comparación no es de
+configuración sino de **quién envuelve la misma API de Kafka Streams**.
+
+| Decision | Por que |
+|---|---|
+| La topología se **produce** ({@code @Produces Topology}) y ya está | Es TODA la diferencia de montaje: en Spring hay `@EnableKafkaStreams`, un bean que recibe el `StreamsBuilder` y `spring.kafka.streams.*`; en Quarkus la extensión configura el motor con `quarkus.kafka-streams.*`, lo arranca, lo para y **expone el `KafkaStreams` como bean** para las consultas interactivas |
+| `MetricsTopology` y `ArbitrageTopology` se copian **tal cual** (solo cambia el tipo de la config) | Son código de Kafka Streams puro. Es el resultado más importante de la fase: **la API de Streams no cambia entre frameworks**, lo que cambia es el envoltorio |
+| El resto del motor va con el prefijo `kafka-streams.*` | `kafka-streams.replication.factor=3`, `commit.interval.ms`, `statestore.cache.max.bytes=0`, `state.dir`, los serdes por defecto... la extensión los pasa a la configuración de Streams |
+| `quarkus.kafka-streams.topics=market.ticks.canonical,market.fx.reference` | La extensión **espera a que existan** antes de arrancar. Es la carrera que en la Fase 6 hubo que resolver a mano en el script (`MissingSourceTopicException`): aquí la resuelve el framework y aparece en `/q/health` como *Kafka Streams topics health check* |
+| Sonda de salud y métricas **de la extensión** | `/q/health` trae dos comprobaciones de Kafka Streams (estado del motor y topics disponibles) sin escribir una línea; en Spring esto fue `StreamsHealth`, 40 líneas propias. Es la diferencia de DX más clara de todo el port |
+| Etiquetas `stack`/`service` con un `MeterFilter` | Micrometer no tiene una propiedad global de etiquetas en Quarkus (solo para el binder de HTTP), así que van con un `MeterFilter.commonTags` |
+| El endpoint es un recurso JAX-RS con **la misma lógica** de 503 | Mismo JSON (fechas ISO, mismos campos), mismo 503 si el motor está en ERROR o el store se está reconstruyendo |
+
+Y el hallazgo que se lleva la palma, porque no es de frameworks sino de **dependencias**:
+
+| Lo que pasó | Lo que hay detrás |
+|---|---|
+| Los tests fallaban con `SecurityException: Forbidden com.aggora.avro.canonical.CanonicalTick! This class is not trusted to be included in Avro schemas` | **Avro 1.12.2 enciende el validador de clases** (`ClassSecurityValidator`) y el BOM de Quarkus trae 1.12.2, mientras que la implementación Spring usa **1.12.1**, donde venía apagado. Con los serdes de Kafka Streams salta seguro, porque `SpecificAvroSerde` resuelve la clase **a partir del esquema** (`ClassUtils.forName`) y ahí está la validación. El productor de Avro normal no lo pisa porque ya tiene el objeto |
+| El arreglo, en dos sitios | En la aplicación: `quarkus.avro.trusted-packages=com.aggora.avro` (la extensión de Quarkus instala su propio predicado). En los tests de topología, que **no** levantan Quarkus: `org.apache.avro.SERIALIZABLE_PACKAGES=com.aggora.avro` en el surefire |
+
+Esto último es un aviso para la implementación Spring: hoy pasa porque su Avro es 1.12.1; el día
+que se suba a 1.12.2+ va a fallar igual y habrá que poner la misma propiedad. Queda escrito.
+
+**Verificado en vivo:** parada la analítica de Spring y arrancada la de Quarkus con el mismo
+`application-id` y los mismos topics, el port **consumió lo que producía el normalizer de Spring**
+y calculó métricas (`market.analytics` a 242 msg/s), la **consulta interactiva devolvió el mismo
+JSON** (mismo formato de fechas y mismos campos), y `/q/health` informó del motor en RUNNING y de
+los topics disponibles. Los **6 tests de topología** (los mismos que Spring, con `TopologyTestDriver`
+y registry `mock://`) pasan.
+
+Los números, mismo servicio y misma máquina:
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (proceso hasta listo) | 3,464 s | **1,548 s** |
+| RSS en reposo | 455 MB | 505 MB |
+| Hilos | 77 | 85 |
+| Descriptores abiertos | 185 | 238 |
+
+Ojo con la memoria de este servicio en concreto: aquí manda el estado (RocksDB + el motor), así que
+la cifra depende de **cuánto estado había cargado** en el momento de medir, y las dos
+implementaciones se midieron en momentos distintos. Para el registro: en las otras dos, donde el
+peso es el framework, Quarkus salió por debajo.
