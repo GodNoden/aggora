@@ -37,6 +37,28 @@ services:
     networks:
       - aggora-net
 
+  # Schema Registry (Fase 2): guarda los esquemas Avro y decide si un cambio de
+  # esquema es compatible. No es un broker: es un servicio HTTP que además usa
+  # Kafka por dentro para guardarse a sí mismo (el topic _schemas).
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    container_name: aggora-schema-registry
+    hostname: schema-registry
+    depends_on:
+      - kafka
+    ports:
+      # Publicado para poder mirarlo desde WSL/Windows con curl.
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      # Se habla con el broker por el nombre interno de aggora-net.
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      # Dev: un solo broker, así que los topics internos van sin réplicas.
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - aggora-net
+
 networks:
   aggora-net:
     # "external: true" = la red ya existe (la creaste a mano) y NO debe
