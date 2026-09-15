@@ -130,7 +130,11 @@ services:
     depends_on:
       - kafka-exporter
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Se monta la CARPETA, no el fichero. Montar un solo fichero funciona hasta que lo
+      # reemplazas: el montaje queda atado al inodo viejo y al recrear el contenedor Docker
+      # Desktop falla con "no such file or directory" (paso al anadir el scrape de las
+      # aplicaciones). Con la carpeta montada, editar prometheus.yml no rompe nada.
+      - ./prometheus:/etc/prometheus:ro
     ports:
       - "9090:9090"
     restart: unless-stopped

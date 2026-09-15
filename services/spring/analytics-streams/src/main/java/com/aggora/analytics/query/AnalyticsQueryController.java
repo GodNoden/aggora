@@ -60,6 +60,21 @@ public class AnalyticsQueryController {
     @GetMapping("/analytics")
     public List<WindowMetrics> metrics(@RequestParam String symbol,
                                        @RequestParam(defaultValue = "5") int minutes) {
+        try {
+            return consultar(symbol, minutes);
+        } catch (InvalidStateStoreException ex) {
+            // Pasa en cada despliegue: el hilo de Streams esta STARTING o REBALANCING mientras
+            // reconstruye el estado, y durante ese rato el store existe pero no se puede leer.
+            // No es un fallo del servicio, es que todavia no esta listo: eso es un 503 con su
+            // motivo, no un 500 generico. (Y hay un detalle que costo un rato: el store se puede
+            // abrir bien y fallar despues, al hacer el fetch, asi que el try tiene que envolver
+            // la consulta entera y no solo el momento de abrir el store.)
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "El state store no esta listo todavia (arrancando o rebalanceando): " + ex.getMessage());
+        }
+    }
+
+    private List<WindowMetrics> consultar(String symbol, int minutes) {
         ReadOnlyWindowStore<String, MetricsAccumulator> store = windowStore();
         Instant to = Instant.now();
         Instant from = to.minus(Duration.ofMinutes(minutes));
@@ -90,13 +105,8 @@ public class AnalyticsQueryController {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Kafka Streams esta en estado ERROR: mira su log, el servicio no esta procesando");
         }
-        try {
-            return streams.store(StoreQueryParameters.fromNameAndType(
-                    MetricsTopology.TUMBLING_STORE, QueryableStoreTypes.windowStore()));
-        } catch (InvalidStateStoreException ex) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "El state store no esta disponible (rebalanceando?): " + ex.getMessage());
-        }
+        return streams.store(StoreQueryParameters.fromNameAndType(
+                MetricsTopology.TUMBLING_STORE, QueryableStoreTypes.windowStore()));
     }
 
     /**

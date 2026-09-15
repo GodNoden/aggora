@@ -1,9 +1,21 @@
-# Prometheus: recoge las metricas de Kafka y las deja consultables.
+# Prometheus: recoge las metricas de Kafka y las de las aplicaciones.
 #
-# Solo hay un trabajo de scrape: el kafka-exporter, que es quien sabe de lag y de offsets
-# (Prometheus no habla el protocolo de Kafka). Para metricas de las aplicaciones (JVM,
-# tareas de Kafka Streams) habria que anadir actuator + micrometer a cada servicio y otro
-# trabajo aqui; queda como mejora.
+# Dos trabajos de scrape:
+#
+#   1. kafka-exporter, que es quien sabe de lag, offsets y throughput (Prometheus no habla
+#      el protocolo de Kafka).
+#   2. Las aplicaciones, en /actuator/prometheus (Spring, Fase 8) y en /q/metrics (Quarkus,
+#      cuando llegue). Es lo que permite poner en el mismo panel las dos implementaciones.
+#
+# Los servicios corren DENTRO del devcontainer, no como contenedores de aggora-net, asi que
+# se llega a ellos por host.docker.internal (Docker Desktop lo resuelve solo en Windows/WSL2;
+# en Docker sobre Linux hay que anadirle extra_hosts: ["host.docker.internal:host-gateway"]).
+# El nombre del contenedor del devcontainer NO resuelve desde aqui: se probo y no funciona.
+#
+# Las etiquetas stack y service NO se ponen aqui: las mete la propia aplicacion en sus
+# metricas (management.metrics.tags en Spring, quarkus.micrometer.binder... en Quarkus).
+# Ponerlas tambien en el scrape haria que Prometheus renombrase las de dentro a
+# exported_stack, que es exactamente el lio que se quiere evitar.
 global:
   scrape_interval: 10s
   evaluation_interval: 10s
@@ -16,3 +28,13 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+
+  - job_name: aggora-apps
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # market-data-simulator (HTTP 8080) y analytics-streams (HTTP 8085): los dos unicos
+      # servicios con servidor web, y por tanto los dos unicos que exponen metricas. A los
+      # otros cinco habria que anadirles spring-boot-starter-web solo para mirarles la
+      # memoria, y eso cambiaria justo lo que se quiere medir.
+      - targets: ["host.docker.internal:8080"]
+      - targets: ["host.docker.internal:8085"]

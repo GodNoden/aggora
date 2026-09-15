@@ -28,20 +28,36 @@ public class AnalyticsConfig {
     /**
      * Que hacer cuando Kafka Streams se encuentra un error que no puede manejar el solo.
      *
-     * Por defecto, el cliente se para: pasa a estado ERROR y deja de procesar. Y aqui esta
-     * lo peligroso, que se descubrio operando el cluster: **el proceso Java sigue vivo**, el
-     * endpoint HTTP responde, y el servicio PARECE sano mientras no hace nada. Un fallo
+     * Por defecto, el cliente se para: pasa a estado ERROR y deja de procesar. Y aqui esta lo
+     * peligroso, que se descubrio operando el cluster: **el proceso Java sigue vivo**, el
+     * endpoint HTTP responde y el servicio PARECE sano mientras no hace nada. Un fallo
      * silencioso, que es el peor tipo.
      *
-     * Con este manejador se sustituye el hilo que fallo en vez de matar el cliente, asi que
-     * el servicio se recupera solo (por ejemplo, cuando el hilo global de una GlobalKTable
-     * muere porque el topic compactado se recreo y su checkpoint apunta a offsets que ya no
-     * existen). Es la respuesta que recomienda la propia documentacion de Kafka Streams.
+     * Con este manejador se sustituye el hilo que fallo en vez de matar el cliente, que es lo
+     * que recomienda la documentacion de Kafka Streams y lo que hace que un error de
+     * procesamiento no se lleve por delante al servicio entero.
+     *
+     * OJO, y esto costo una tarde: **hay errores que esto no arregla**, y el peor es el del
+     * hilo global de una GlobalKTable. Su estado vive en disco y su checkpoint apunta a offsets
+     * de un topic compactado; cuando la compactacion se lleva por delante esos offsets, Kafka
+     * Streams limpia el estado local y pide un reinicio que nadie le da: el cliente se queda en
+     * ERROR y el servicio devuelve 503 para siempre. Se probo a responder
+     * `SHUTDOWN_APPLICATION` (que sobre el papel para la aplicacion entera) y sale peor: dentro
+     * de Spring el cierre se enreda, el consumidor entra en un bucle de "Request joining group
+     * due to: Shutdown requested" que escribio 429 MB de log en 28 segundos, y el proceso
+     * TAMPOCO muere.
+     *
+     * La conclusion no es "buscar otra respuesta del manejador", es que **un servicio no
+     * deberia decidir suicidarse**: quien levanta un proceso caido es el supervisor (la
+     * politica de reinicio de Docker, systemd, Kubernetes) y quien le dice que esta roto es la
+     * sonda de salud. Por eso el arreglo de verdad es {@link com.aggora.analytics.health.StreamsHealth}:
+     * `/actuator/health` baja a DOWN cuando el motor no procesa, y el supervisor hace el resto.
      */
     @Bean
     public StreamsBuilderFactoryBeanConfigurer streamsResilience() {
         return factoryBean -> factoryBean.setStreamsUncaughtExceptionHandler(throwable -> {
-            log.error("[streams] error no controlado ({}): se sustituye el hilo para seguir procesando",
+            log.error("[streams] error no controlado ({}): se sustituye el hilo para seguir procesando; "
+                    + "si el motor se queda en ERROR, /actuator/health lo dira y el supervisor reiniciara",
                     throwable.getMessage());
             return StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.REPLACE_THREAD;
         });

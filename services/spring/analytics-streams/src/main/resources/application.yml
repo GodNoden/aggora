@@ -9,7 +9,7 @@ spring:
 
   kafka:
     # Nombre interno dentro de aggora-net. Nunca localhost (ver README).
-        # Cluster de 3 brokers (Fase 6): se listan los tres para que si uno esta caido
+    # Cluster de 3 brokers (Fase 6): se listan los tres para que si uno esta caido
     # el cliente se entere por los otros. Los topics usan replicas: 3.
     bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
     streams:
@@ -59,3 +59,24 @@ aggora:
     # Los dos precios no llegan en el mismo milisegundo: hasta 5 s de separacion se
     # consideran comparables.
     join-window: 5s
+
+# --- Metricas para Prometheus (Fase 8) -------------------------------------------
+# El endpoint es /actuator/prometheus. Solo se publican salud y metricas: el resto
+# de endpoints de actuator se quedan cerrados. Las series llevan las etiquetas
+# stack y service, que son las que permiten poner en el mismo panel las dos
+# implementaciones (stack="spring" y stack="quarkus") sin confundirlas.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      # Los detalles se enseñan a proposito: cuando un contenedor esta DOWN, lo primero que
+      # se hace es preguntarle por que, y "estado: ERROR" ahorra media hora. En un despliegue
+      # con acceso publico esto se pone en never o detras de autenticacion.
+      show-details: always
+  metrics:
+    tags:
+      stack: spring
+      service: ${spring.application.name}

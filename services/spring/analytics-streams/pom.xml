@@ -53,6 +53,21 @@
       <artifactId>kafka-streams-test-utils</artifactId>
       <scope>test</scope>
     </dependency>
+
+    <!-- Metricas de la aplicacion para Prometheus (Fase 8). El endpoint es
+         /actuator/prometheus, y estas mismas series son las que se comparan con
+         las de la version Quarkus. Solo lo llevan los servicios que YA tienen
+         servidor web: anadir spring-boot-starter-web a los otros cinco solo para
+         poder mirarles las metricas cambiaria justo lo que se quiere medir
+         (memoria y tiempo de arranque). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
   </dependencies>
 
   <build>

@@ -1,20 +1,35 @@
 {
   "uid": "aggora-kafka",
   "title": "Aggora — Kafka",
-  "tags": ["aggora", "kafka"],
+  "tags": [
+    "aggora",
+    "kafka",
+    "spring"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "10s",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "timeseries",
       "title": "Lag por grupo de consumidores",
       "description": "Cuanto va cada grupo por detras de lo escrito. Si una linea sube sin parar, ese consumidor no da abasto o esta caido.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "refId": "A",
@@ -28,8 +43,16 @@
       "type": "timeseries",
       "title": "Lag por topic",
       "description": "El mismo retraso, pero mirando que topic se queda atras (util para saber donde esta el cuello de botella).",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "refId": "A",
@@ -43,10 +66,20 @@
       "type": "timeseries",
       "title": "Throughput por topic (mensajes/s)",
       "description": "Velocidad a la que crece el final del log de cada topic. Es la tasa de escritura.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "fieldConfig": {
-        "defaults": { "unit": "reqps" },
+        "defaults": {
+          "unit": "reqps"
+        },
         "overrides": []
       },
       "targets": [
@@ -62,8 +95,16 @@
       "type": "timeseries",
       "title": "Mensajes descartados (DLT) por topic",
       "description": "Lo que va a los topics de descartes. Si sube, hay mensajes que no se pueden procesar y hay que mirarlos.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "targets": [
         {
           "refId": "A",
@@ -76,8 +117,16 @@
       "id": 5,
       "type": "stat",
       "title": "Brokers vivos",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 16
+      },
       "targets": [
         {
           "refId": "A",
@@ -91,8 +140,16 @@
       "type": "stat",
       "title": "Lag total del sistema",
       "description": "Suma del retraso de todos los grupos. Es el numero que se mira cuando alguien dice 'va lento'.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 16
+      },
       "targets": [
         {
           "refId": "A",
@@ -100,6 +157,229 @@
           "legendFormat": "lag"
         }
       ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Motor de Kafka Streams",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aggora_kafka_streams_running",
+          "legendFormat": "{{stack}} {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "ERROR",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "procesando",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "1 = procesando (RUNNING o REBALANCING), 0 = en ERROR. Es la metrica que delata el fallo silencioso: el proceso puede estar vivo y contestando mientras el motor no procesa nada."
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Arranque hasta estar listo (s)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "application_ready_time_seconds",
+          "legendFormat": "{{stack}} {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "Spring publica application_ready_time_seconds. Cuando exista el port de Quarkus se anade su metrica equivalente y las dos implementaciones se ven en el mismo panel."
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Hilos vivos de la JVM",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_threads_live_threads",
+          "legendFormat": "{{stack}} {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "Uno de los numeros que mas se separan entre una JVM y un binario nativo (y entre Spring y Quarkus)."
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Memoria de la JVM en uso",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stack, service) (jvm_memory_used_bytes)",
+          "legendFormat": "{{stack}} {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "description": "Heap mas memoria no-heap que gestiona la JVM. La memoria REAL del proceso (RSS) se mide aparte con ps, y es la unica que existe tambien en una imagen nativa."
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "CPU del proceso",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_cpu_usage",
+          "legendFormat": "{{stack}} {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "Fraccion de CPU (0.5 = medio nucleo) que consume el proceso."
     }
   ]
 }
