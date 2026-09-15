@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "FxRate",
+  "namespace": "com.aggora.avro.reference",
+  "doc": "Tipo de cambio de referencia, keyed por el par (EUR/USD). Va a market.fx.reference, que es un topic COMPACTADO: solo interesa el ultimo valor de cada clave, asi que Kafka se queda con uno por par en vez de con todo el historial. Es el dato con el que se convierte el precio de la cotizacion europea a dolares.",
+  "fields": [
+    {"name": "pair", "type": "string", "doc": "Par de divisas tal y como se lee: EUR/USD."},
+    {
+      "name": "rate",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Precio del par: cuantos USD vale 1 EUR en este caso."
+    },
+    {"name": "eventTime", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

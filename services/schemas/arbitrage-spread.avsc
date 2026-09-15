@@ -1,0 +1,34 @@
+{
+  "type": "record",
+  "name": "ArbitrageSpread",
+  "namespace": "com.aggora.avro.analytics",
+  "doc": "Diferencia de precio entre las dos cotizaciones de la MISMA empresa en dos mercados distintos. Es el contrato de market.arbitrage (subject market.arbitrage-value). Todos los importes van en USD: el precio europeo se convierte con el tipo de cambio de referencia antes de compararlo, porque comparar euros con dolares no significa nada. El precio original en EUR sigue estando en market.ticks.canonical para ese simbolo.",
+  "fields": [
+    {"name": "rootSymbol", "type": "string", "doc": "La empresa, sin sufijo de mercado: ASML."},
+    {"name": "europeanSymbol", "type": "string", "doc": "ASML.AMS"},
+    {"name": "americanSymbol", "type": "string", "doc": "ASML"},
+    {
+      "name": "europeanPriceUsd",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Precio de la cotizacion europea convertido a dolares."
+    },
+    {
+      "name": "americanPriceUsd",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Precio de la cotizacion americana (ya venia en dolares)."
+    },
+    {
+      "name": "spreadUsd",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "americanPriceUsd - europeanPriceUsd. Positivo = la cotizacion americana esta mas cara."
+    },
+    {
+      "name": "spreadBps",
+      "type": "double",
+      "doc": "El spread en puntos basicos sobre el precio europeo (1 bp = 0,01%). Es lo que se compara entre instrumentos de precios muy distintos."
+    },
+    {"name": "europeanTime", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "americanTime", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "detectedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

@@ -26,4 +26,19 @@ public class KafkaTopicsConfig {
                 .replicas(1)
                 .build();
     }
+
+    /**
+     * Tipos de cambio como DATO DE REFERENCIA. Es un topic COMPACTADO: a quien lo lee
+     * le interesa el ultimo valor de cada par, no el historial de todos los ticks. Kafka
+     * se queda con una entrada por clave y va tirando las viejas. Una sola particion:
+     * son 2 pares, no hace falta repartir.
+     */
+    @Bean
+    public NewTopic fxReference(AggoraProperties props) {
+        return TopicBuilder.name(props.topics().fxReference())
+                .partitions(1)
+                .replicas(1)
+                .config("cleanup.policy", "compact")
+                .build();
+    }
 }

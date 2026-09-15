@@ -35,14 +35,17 @@ public class TickConsumer {
 
     private final AggoraProperties props;
     private final KafkaTemplate<String, com.aggora.avro.canonical.CanonicalTick> canonicalTemplate;
+    private final KafkaTemplate<String, com.aggora.avro.reference.FxRate> fxTemplate;
     private final AtomicLong received = new AtomicLong();
     private final AtomicLong discarded = new AtomicLong();
     private final AtomicLong published = new AtomicLong();
 
     public TickConsumer(AggoraProperties props,
-                        KafkaTemplate<String, com.aggora.avro.canonical.CanonicalTick> canonicalTemplate) {
+                        KafkaTemplate<String, com.aggora.avro.canonical.CanonicalTick> canonicalTemplate,
+                        KafkaTemplate<String, com.aggora.avro.reference.FxRate> fxTemplate) {
         this.props = props;
         this.canonicalTemplate = canonicalTemplate;
+        this.fxTemplate = fxTemplate;
     }
 
     /**
@@ -63,6 +66,7 @@ public class TickConsumer {
         } else {
             com.aggora.avro.canonical.CanonicalTick canonical = toCanonical(record);
             publish(canonical);
+            publishFxReference(record.value());
             logCanonical(record, canonical, count);
         }
 
@@ -110,6 +114,27 @@ public class TickConsumer {
                     }
                     published.incrementAndGet();
                 });
+    }
+
+    /**
+     * Los pares de divisas son DATO DE REFERENCIA: ademas del evento canonico se
+     * publican a un topic compactado para que otros servicios los lean como tabla (el
+     * ultimo tipo de cambio por par) sin tener que reprocesar el stream entero.
+     *
+     * ponytail: se asume que el par esta cotizado como XXX/USD, es decir, el precio dice
+     * cuantos USD vale una unidad de la divisa base. Con pares al reves habria que
+     * invertir el tipo.
+     */
+    private void publishFxReference(Tick tick) {
+        if (tick.getAssetClass() != com.aggora.avro.AssetClass.FX) {
+            return;
+        }
+        com.aggora.avro.reference.FxRate rate = com.aggora.avro.reference.FxRate.newBuilder()
+                .setPair(tick.getSymbol())
+                .setRate(tick.getPrice())
+                .setEventTime(tick.getEventTime())
+                .build();
+        fxTemplate.send(props.topics().fxReference(), tick.getSymbol(), rate);
     }
 
     /** Log resumido: los primeros y uno de cada 500, para no inundar la consola. */
