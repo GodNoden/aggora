@@ -1,0 +1,19 @@
+# La auditoria en Quarkus (Fase 8). El bloque `aggora:` es el MISMO que el de la version Spring:
+# los topics, el intervalo del publicador y el tamano del lote no se tocan.
+
+quarkus:
+  application:
+    name: audit-log
+  banner:
+    enabled: false
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    executions: orders.executions
+    portfolio-updates: portfolio.updates
+    alerts: alerts.raised
+    audit-events: audit.events
+  # Cada cuanto mira el publicador si hay recados pendientes en la outbox.
+  relay-interval-ms: 1000
+  relay-batch-size: 200

@@ -30,6 +30,7 @@
     <module>portfolio-risk</module>
     <module>order-matching-engine</module>
     <module>alerting-service</module>
+    <module>audit-log</module>
   </modules>
 
   <properties>
