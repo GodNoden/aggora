@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "Execution",
+  "namespace": "com.aggora.avro.orders",
+  "doc": "El cruce de dos ordenes: una compra y una venta al mismo precio. Es el contrato de orders.executions (subject orders.executions-value). Se publica DENTRO de una transaccion de Kafka, junto con el offset que se confirma: o sale la ejecucion y avanza el offset, o no pasa ninguna de las dos cosas.",
+  "fields": [
+    {"name": "executionId", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {
+      "name": "price",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Precio al que se cruzan: el de la orden que ya estaba en el libro (la parte pasiva marca el precio)."
+    },
+    {"name": "quantity", "type": "int"},
+    {"name": "buyOrderId", "type": "string"},
+    {"name": "sellOrderId", "type": "string"},
+    {"name": "buyAccountId", "type": "string"},
+    {"name": "sellAccountId", "type": "string"},
+    {"name": "executedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

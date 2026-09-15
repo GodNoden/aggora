@@ -22,7 +22,7 @@ public record AggoraProperties(
         AlphaVantage alphaVantage,
         List<Instrument> instruments) {
 
-    public record Topics(String ticksRaw) {
+    public record Topics(String ticksRaw, String ordersIncoming) {
     }
 
     /** Parámetros del modelo estocástico (ver PriceWalk). */

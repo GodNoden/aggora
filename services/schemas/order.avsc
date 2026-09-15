@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.aggora.avro.orders",
+  "doc": "Una orden enviada por un trader simulado. Es el contrato de orders.incoming (subject orders.incoming-value).",
+  "fields": [
+    {"name": "orderId", "type": "string"},
+    {"name": "accountId", "type": "string", "doc": "Cuenta que envia la orden. Es lo que necesitara portfolio-risk en la Fase 5."},
+    {"name": "symbol", "type": "string"},
+    {
+      "name": "side",
+      "type": {"type": "enum", "name": "Side", "symbols": ["BUY", "SELL"]}
+    },
+    {
+      "name": "price",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Precio limite. Solo hay ordenes limitadas: las de mercado quedan fuera del alcance."
+    },
+    {"name": "quantity", "type": "int"},
+    {"name": "placedAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

@@ -36,9 +36,15 @@ spring:
 aggora:
   topics:
     ticks-raw: market.ticks.raw
+    orders-incoming: orders.incoming
 
   # Cada cuánto se emite un tick sintético por instrumento abierto (5/s).
   tick-interval-ms: 200
+
+  # Ordenes simuladas: una cada segundo, empezando a los 15 s (para que el simulador
+  # tenga ya precios de referencia con los que poner precios limite).
+  order-interval-ms: 1000
+  order-initial-delay-ms: 15000
 
   simulation:
     volatility-per-tick: 0.0006  # desviación típica del shock, relativa al precio

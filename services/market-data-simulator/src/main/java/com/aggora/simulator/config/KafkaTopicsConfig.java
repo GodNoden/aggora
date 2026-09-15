@@ -25,4 +25,17 @@ public class KafkaTopicsConfig {
                 .replicas(1)
                 .build();
     }
+
+    /**
+     * Ordenes de los traders simulados. Key = SIMBOLO (no cuenta): el motor de matching
+     * mantiene un libro por instrumento y necesita que todas las ordenes de un simbolo
+     * caigan en la misma particion. Con la cuenta como key habria que reparticionar.
+     */
+    @Bean
+    public NewTopic ordersIncoming(AggoraProperties props) {
+        return TopicBuilder.name(props.topics().ordersIncoming())
+                .partitions(6)
+                .replicas(1)
+                .build();
+    }
 }
