@@ -723,3 +723,67 @@ vale para un broker suelto o para un clúster de tres, sin tocar nada. Y los top
 de Kafka Streams (changelog y repartición) llevan `replication.factor: 3` en su
 configuración, porque el estado de las ventanas también tiene que sobrevivir a una caída.
 
+---
+
+## 17. La Fase 7 en la práctica: cambiar un contrato sin romper a nadie
+
+Hasta aquí los esquemas Avro solo habían crecido: se añadió `currency` a las órdenes y a las
+ejecuciones y el registro lo aceptó. Esta fase va a por lo incómodo: **¿qué pasa cuando el
+cambio no es inocente?** El laboratorio está en `scripts/schema-evolution-lab.sh` y la
+explicación larga en [schema-evolution-lab.md](schema-evolution-lab.md).
+
+**La idea en una frase:** un esquema es un contrato entre quien escribe y quien lee, y esos
+dos **no se despliegan el mismo día**. El Schema Registry es el notario que se niega a
+registrar un contrato que rompa al otro lado, antes de que nadie escriba un solo mensaje.
+
+**La analogía:** tú actualizas tu agenda de direcciones y tu amigo tiene la vieja.
+
+- Que **tú** puedas seguir leyendo las cartas que te llegaron antes del cambio es una
+  dirección de la compatibilidad (*backward*).
+- Que **tu amigo**, con la agenda vieja, siga encontrando tu casa es la otra (*forward*).
+- El **valor por defecto** de un campo es la respuesta ya impresa en el formulario: si la
+  casilla viene vacía, cada uno pone la suya y nadie se queda sin papel.
+- Un **alias** es la orden de reenvío de Correos: te has mudado de nombre de campo, pero
+  siguen llegando las cartas a la dirección antigua.
+
+**Lo que midió el laboratorio, contra el registro de verdad:**
+
+```
+cambio                                     BACKWARD    FORWARD
+campo nuevo con valor por defecto          COMPATIBLE  COMPATIBLE
+campo nuevo sin valor por defecto          RECHAZADO   COMPATIBLE
+renombrar un campo sin alias               RECHAZADO   RECHAZADO
+renombrar un campo con alias               COMPATIBLE  RECHAZADO
+borrar un campo                            COMPATIBLE  RECHAZADO
+campo opcional (union con null)            COMPATIBLE  RECHAZADO
+```
+
+Lo único que es seguro en las dos direcciones es **añadir un campo con valor por defecto**.
+Todo lo demás te obliga a decidir quién se despliega primero, y de ahí sale el orden: si un
+cambio es compatible solo hacia atrás, los consumidores van **después**.
+
+**La trampa, que es lo que más se atasca en la cabeza:** *borrar* un campo **pasa** el
+filtro BACKWARD (el lector nuevo ignora lo que no conoce, así que dice que sí con razón) y
+**rompe** a los consumidores que ya estaban desplegados, porque ellos sí lo conocen y ya no
+lo van a recibir. El registro no miente: contesta a la pregunta que le haces, y hay que
+hacerle las dos.
+
+**Los arreglos, en orden de barato a caro:** el campo nuevo con default; el alias para
+renombrar; el borrado en dos tiempos (primero opcional, esperar, luego quitar); y cuando hay
+que cambiar el contrato de verdad, **topic nuevo** (`market.ticks.canonical.v2`), que es un
+subject nuevo y por tanto no tiene historial con el que ser incompatible. Vendrán dos
+capítulos más de esto en la fase de Quarkus, porque el registro se comporta igual.
+
+**La mina antipersona, que este laboratorio no pisa:** cada mensaje del topic apunta al **ID
+del esquema** con el que se escribió. Si borras un esquema del registro y quedan mensajes
+escritos con él, esos mensajes se quedan **ilegibles para siempre**: no se pueden reescribir
+y su única llave acaba de desaparecer. Por eso el laboratorio registra, comprueba y borra
+**sin producir ni un mensaje** con los esquemas de prueba.
+
+**Cómo se reflejó en el código**: el laboratorio entero vive en
+`scripts/schema-evolution-lab.sh` (que deja el registro como estaba y se limpia solo si se
+corta a la mitad) y la traducción de Avro se comprueba sin broker en
+`SchemaEvolutionTest`, con la clase ya compilada haciendo de consumidor antiguo. El esquema
+propuesto está en `services/ingestion-normalizer/src/test/resources/canonical-v2.avsc`:
+`canonical.avsc` con un campo `venueMic` al final que tiene `"default": ""`. Ese `default`
+es todo el cambio.

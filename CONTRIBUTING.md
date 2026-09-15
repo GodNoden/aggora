@@ -72,10 +72,13 @@
 - `AGENTS.md` — ponytail service
 - `README.md` — portada del repositorio (qué es y cómo arrancarlo).
 - `CONTRIBUTING.md` — este archivo. Actualizar al cerrar cada fase.
-- `docs/` — decisiones e infra detallada (`decisions.md`) y guía de conceptos
-  Kafka en lenguaje llano (`kafka-101.md`).
+- `docs/` — decisiones e infra detallada (`decisions.md`), guía de conceptos Kafka en
+  lenguaje llano (`kafka-101.md`) y manual del laboratorio de evolución de esquemas
+  (`schema-evolution-lab.md`).
 - `infra/` — docker-compose, configs de Prometheus/Grafana.
+- `scripts/` — arranque y parada de los servicios y el laboratorio de esquemas.
 - `services/` — microservicios (multi-módulo Maven):
+  - `schemas/` — los contratos Avro (`.avsc`) de los que se generan las clases Java.
   - `market-data-simulator` — produce ticks a `market.ticks.raw`.
   - `ingestion-normalizer` — los consume con commit manual.
 
@@ -205,6 +208,23 @@
   Jackson 3 (paquete `tools.jackson`), la autoconfiguración de Kafka pasa al módulo
   `spring-boot-kafka` (starter `spring-boot-starter-kafka`) y los serializadores
   JSON de Spring Kafka se llaman ahora `JacksonJson*`.
+- ✅ **Fase 7 — Laboratorio de evolución de esquemas** (hecho) —
+  `scripts/schema-evolution-lab.sh` pregunta al registro de verdad por seis cambios
+  distintos y enseña los veredictos **en las dos direcciones** (BACKWARD y FORWARD), los dos
+  rechazos con el mensaje literal del registro (`READER_FIELD_MISSING_DEFAULT_VALUE`,
+  `HTTP 409`) y los arreglos que existen. Medido, no supuesto: lo único que funciona en las
+  dos direcciones es **añadir un campo con valor por defecto**; **borrar un campo pasa el
+  filtro BACKWARD** (el lector nuevo ignora lo que no conoce) y sin embargo rompe a los
+  consumidores que ya estaban desplegados. El laboratorio no produce ni un mensaje con los
+  esquemas de prueba (un mensaje apunta al ID de su esquema: borrarlo lo deja ilegible para
+  siempre) y deja el subject como estaba (`versiones: [1] (baseline: [1])`).
+  La traducción de Avro se comprueba sin broker en `SchemaEvolutionTest` (5 tests, con la
+  clase `CanonicalTick` ya compilada haciendo de consumidor antiguo): **41 tests en verde**
+  en total. Detalle en `docs/schema-evolution-lab.md` y capítulo 17 de `docs/kafka-101.md`.
+- ⏭️ **Fase 8 (siguiente)** — port de los servicios a Quarkus (SmallRye Reactive Messaging y
+  la extensión de Kafka Streams) e imagen nativa de GraalVM para medir arranque y memoria.
+  Antes hace falta añadir métricas de aplicación (actuator + micrometer) para tener la línea
+  base de la versión Spring.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
@@ -417,6 +437,17 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
 # Y el evento canónico, que produce el normalizer
 docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.canonical
+```
+
+### Verificar la Fase 7 (evolución de esquemas)
+```bash
+# El laboratorio entero: pregunta, enseña los veredictos de las dos direcciones, intenta
+# registrar lo que rompe (409), registra lo que no, y deja el registro como estaba.
+bash scripts/schema-evolution-lab.sh
+
+# La traducción de Avro, sin broker ni registro
+cd /workspaces/aggora/services
+mvn -q -pl ingestion-normalizer test -Dtest=SchemaEvolutionTest
 ```
 
 ## Decisiones tomadas (link a docs/decisions.md para el detalle)

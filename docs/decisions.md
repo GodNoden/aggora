@@ -284,3 +284,37 @@ y los arreglos:
 | La causa concreta era el **GlobalKTable sobre un topic compactado**: su checkpoint apunta a offsets que la compactación (o recrear el topic) se lleva por delante | Se queda documentado: un topic compactado no es un histórico fiable, solo el último estado por clave. Con el manejador nuevo, el hilo se sustituye y el estado global se relee |
 | Se perdió un rato persiguiendo un `NoSuchMethodError` que era **basura de compilación**: el `.class` decía una cosa y el código otra | Conclusión práctica: ante un error raro de firma o de clase que no cuadra con el código, `mvn clean` antes de investigar nada más |
 
+
+## Fase 7 — Laboratorio de evolucion de esquemas
+
+El objetivo de la fase es cambiar un contrato que ya esta en marcha y **enterarse antes de
+romperlo**. Lo primero fue medir, porque casi todo lo que se cuenta de la compatibilidad de
+Avro se aprende mal: el laboratorio pregunta al registro de verdad por seis cambios y anota
+los veredictos en las dos direcciones.
+
+| Decision | Por que |
+|---|---|
+| El laboratorio **no produce mensajes** con los esquemas de prueba | Cada mensaje del topic apunta al **ID de su esquema**. Si produces con un esquema y luego lo borras, esos mensajes quedan ilegibles para siempre (no se pueden reescribir y su unica llave desaparece). Registrando y borrando sin producir, no se deja ninguna mina |
+| El laboratorio **deja el registro como estaba** y se limpia solo si se corta | Es una prueba sobre un sistema vivo. Un `trap` en `EXIT` borra lo que haya registrado, y el ultimo paso comprueba `versiones: [1] (baseline: [1])`. Si no coincide, el script **falla** en vez de callarse |
+| El schema propuesto vive en `src/test/resources` y no en `services/schemas` | El `avro-maven-plugin` genera clases a partir de todos los `.avsc` de `services/schemas`: un segundo `CanonicalTick` con el mismo nombre en el mismo namespace rompe la generacion. En `test/resources` no se genera nada y el test lo lee del classpath |
+| El "consumidor antiguo" del test es la clase `CanonicalTick` ya compilada | Es la prueba honesta: no se simula un lector viejo, se usa el que el servicio tiene en produccion. El escritor usa el esquema nuevo y el lector el viejo, que es exactamente lo que hace el deserializador de Confluent con el esquema que le da el registro |
+| El nivel de compatibilidad se queda en **BACKWARD** | Es el que corresponde a un proyecto donde los consumidores se despliegan despues que los productores. El laboratorio cambia el nivel un momento (dentro de `comprobar_con_nivel`) para enseñar la otra columna y lo restaura |
+| Los esquemas de prueba se generan con `jq` desde `canonical.avsc` | No se quedan desfasados si el contrato cambia, y deja a la vista que un cambio que rompe es una linea de `jq`, no un fichero que alguien mantiene a proposito |
+
+Lo medido, que es lo que justifica la fase:
+
+| Cambio | BACKWARD | FORWARD |
+|---|---|---|
+| Añadir un campo **con** valor por defecto | COMPATIBLE | COMPATIBLE |
+| Añadir un campo **sin** valor por defecto | RECHAZADO | COMPATIBLE |
+| Renombrar un campo sin alias | RECHAZADO | RECHAZADO |
+| Renombrar un campo con alias | COMPATIBLE | RECHAZADO |
+| Borrar un campo | **COMPATIBLE** | RECHAZADO |
+| Campo opcional (`["null","long"]`, default `null`) | COMPATIBLE | RECHAZADO |
+
+La fila que hay que recordar es la del borrado: **el registro lo acepta** (con BACKWARD) y
+sin embargo **rompe a los consumidores ya desplegados**, porque ellos si conocen el campo y
+dejan de recibirlo. "Compatible" no significa nada sin decir en que direccion, y el error de
+un borrado no aparece en el registro sino en produccion. Es el mismo tipo de leccion que el
+`MissingSourceTopicException` de la Fase 6: el sistema te avisa donde puede, no donde
+quisieras.

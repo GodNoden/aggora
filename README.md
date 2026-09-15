@@ -25,6 +25,7 @@ por qué aparecieron y cómo se arreglaron.
 | Commit manual de offsets y at-least-once | `ingestion-normalizer` (`AckMode.MANUAL`) |
 | Grupos de consumo y rebalanceo | Dos instancias del normalizer reparten 3/3 particiones |
 | Avro + Schema Registry y compatibilidad | 12 esquemas en `services/schemas/`, cambio compatible real (`v2` de `Order`/`Execution`) |
+| Evolución de esquemas sin romper consumidores | `scripts/schema-evolution-lab.sh`: veredictos BACKWARD y FORWARD medidos, rechazo real con `409` y los tres arreglos |
 | Kafka Streams con la API a pelo | Ventanas fijas y móviles, state stores, join stream-stream y stream-GlobalKTable |
 | Consultas interactivas al estado | `GET /analytics?symbol=...` lee el state store en caliente |
 | Exactly-once de punta a punta | Productor transaccional + `isolation.level=read_committed` |
@@ -153,15 +154,16 @@ sintéticos. **Nunca se escriben en el repositorio**; se leen de variables de en
 | 4 | Motor de cruce de órdenes con exactly-once transaccional | ✅ |
 | 5 | Cartera, alertas y auditoría con transactional outbox | ✅ |
 | 6 | Resiliencia y operación: DLT, reintentos, 3 brokers, Grafana | ✅ |
-| 7 | Laboratorio de evolución de esquemas (cambio compatible y cambio que rompe) | 🔄 siguiente |
-| 8 | Port de los servicios a Quarkus + imagen nativa de GraalVM | ⏳ |
+| 7 | Laboratorio de evolución de esquemas: qué rompe, cómo se detecta y cómo se arregla | ✅ |
+| 8 | Port de los servicios a Quarkus + imagen nativa de GraalVM | 🔄 siguiente |
 | 9 | Informe comparativo Spring vs Quarkus con números | ⏳ |
 
-**Verificado en vivo, no en teoría:** 36 tests unitarios en verde, 3 brokers con quórum
+**Verificado en vivo, no en teoría:** 41 tests unitarios en verde, 3 brokers con quórum
 KRaft y 3 réplicas por partición (con dos brokers caídos la escritura se detiene con
 `NOT_ENOUGH_REPLICAS` en vez de perder datos), exactly-once medido sobre el mismo topic
-(`read_committed` 121 mensajes frente a `read_uncommitted` 168) y 131.932 eventos
-auditados que sobrevivieron a la reconstrucción completa del entorno.
+(`read_committed` 121 mensajes frente a `read_uncommitted` 168), los seis veredictos de
+compatibilidad de esquemas medidos contra el registro en las dos direcciones, y 131.932
+eventos auditados que sobrevivieron a la reconstrucción completa del entorno.
 
 ---
 
@@ -171,10 +173,11 @@ auditados que sobrevivieron a la reconstrucción completa del entorno.
 README.md                  portada del proyecto
 SPEC.md                    especificación original (inmutable)
 CONTRIBUTING.md            directrices de trabajo, convenciones y estado fase a fase
-docs/kafka-101.md          los conceptos de Kafka en lenguaje llano (16 capítulos)
+docs/kafka-101.md          los conceptos de Kafka en lenguaje llano (17 capítulos)
 docs/decisions.md          registro de decisiones y de las desviaciones del spec
+docs/schema-evolution-lab.md  manual del laboratorio de evolución de esquemas
 infra/                     docker-compose, Prometheus, panel de Grafana
-scripts/                   arranque y parada ordenada de los siete servicios
+scripts/                   arranque y parada de los servicios, y el laboratorio de esquemas
 services/                  Maven multi-módulo
   schemas/                 los 12 contratos Avro (.avsc) de los que se generan las clases
   market-data-simulator/   precios reales + órdenes simuladas
@@ -195,6 +198,9 @@ services/                  Maven multi-módulo
   proyecto, sin dar por sabido nada.
 - **[`docs/decisions.md`](docs/decisions.md)** — por qué cada decisión se tomó así, incluidas
   las desviaciones conscientes del spec y los errores que costaron tiempo.
+- **[`docs/schema-evolution-lab.md`](docs/schema-evolution-lab.md)** — qué se puede cambiar en
+  un contrato en marcha sin romper a nadie, con los veredictos que dio el registro y el
+  playbook para hacerlo en producción.
 - **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — cómo se trabaja en el repo, convenciones de red
   y de nombres, y el detalle de verificación de cada fase.
 
