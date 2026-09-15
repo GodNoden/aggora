@@ -521,3 +521,36 @@ Ojo con la memoria de este servicio en concreto: aquí manda el estado (RocksDB 
 la cifra depende de **cuánto estado había cargado** en el momento de medir, y las dos
 implementaciones se midieron en momentos distintos. Para el registro: en las otras dos, donde el
 peso es el framework, Quarkus salió por debajo.
+
+### Fase 8: el port de `portfolio-risk` a Quarkus
+
+El segundo servicio de Kafka Streams, y el que confirma que la receta de la analítica se repite:
+topología producida, config en `kafka-streams.*`, el `ActionConfig` de Avro declarado y los tests
+con `TopologyTestDriver`. **La topología se copió tal cual** (180 líneas de aritmética de cartera,
+con `KState`/`KTable`, ventanas de estado y re-clavado por cuenta|símbolo) y lo único que cambió fue
+el tipo de la configuración y tres líneas de montaje.
+
+| Decision | Por que |
+|---|---|
+| **Sin servidor web, sin métricas y sin sonda**, en las dos implementaciones | La de Spring tampoco las tiene (es un motor de Streams y nada más). Añadirlas solo a un lado falsearía justo lo que se mide: el RSS y el arranque |
+| `kafka-streams.isolation.level=read_committed` | El motor de matching publica las ejecuciones en **transacciones**. Leyendo `read_uncommitted` entrarían también las ejecuciones ABORTADAS y las posiciones contarían operaciones que no ocurrieron |
+| Directorio de estado propio (`/tmp/aggora-portfolio-state-quarkus`) | Para no mezclarlo con el de Spring mientras se comparan; el estado se reconstruye desde el changelog |
+
+**Verificado en vivo, y esto es lo interesante de este servicio:** el port de Quarkus se puso a
+consumir `orders.executions`, que es lo que publica el **motor de matching de Spring, con
+transacciones**, y calculó posiciones (`[cartera] ACC-01 USO | cantidad=806 coste...`) escribiendo
+en `portfolio.updates` a ~1 msg/s. O sea: un consumidor `read_committed` de Quarkus leyendo lo que
+un productor transaccional de Spring confirmó — el exactly-once de la Fase 4 cruzando las dos
+implementaciones sin enterarse.
+
+Los números, mismo servicio y misma máquina:
+
+| | Spring Boot 4.1.1 | Quarkus 3.39.3 (JVM) |
+|---|---|---|
+| Arranque (proceso hasta listo) | 2,023 s | **1,066 s** |
+| RSS en reposo | 374 MB | **306 MB** |
+| Hilos | 61 | 66 |
+| Descriptores abiertos | 81 | 147 |
+
+Es el servicio donde la diferencia de arranque es mayor (−47%), y tiene sentido: no hay contexto de
+Spring ni servidor web de por medio, solo el motor de Streams.

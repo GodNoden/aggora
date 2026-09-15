@@ -296,10 +296,19 @@
   `Forbidden com.aggora.avro.canonical.CanonicalTick`; la implementación Spring usa 1.12.1 y por
   eso hoy no le pasa. Arreglado con `quarkus.avro.trusted-packages` y, en los tests,
   `org.apache.avro.SERIALIZABLE_PACKAGES`.
-- ⏭️ **Fase 8 (lo que queda)** — los otros 4 servicios (matching, portfolio y alerting, los dos
-  últimos de Kafka Streams, y audit-log), con `group.id` propio y topics de salida propios para
-  poder correr los dos stacks a la vez; y la imagen nativa de GraalVM para dos servicios (el spec
-  pide *at least two*) con las medidas de arranque y memoria.
+- ✅ **Fase 8 — cuarto servicio portado: `portfolio-risk`** (hecho). La receta de la analítica se
+  repite: la topología se copia tal cual y el montaje es `@Produces Topology`. La decisión propia de
+  este servicio es **no** tener servidor web, métricas ni sonda, porque la versión Spring tampoco
+  las tiene. Verificado en vivo con el detalle bonito: el port de Quarkus consumió
+  `orders.executions` **publicado por el motor de matching de Spring con transacciones** y calculó
+  posiciones, o sea el exactly-once de la Fase 4 cruzando las dos implementaciones. Números:
+  arranque **1,066 s** frente a 2,023 s y RSS **306 MB** frente a 374 MB (la mayor diferencia de
+  arranque de todo el port, −47%).
+- ⏭️ **Fase 8 (lo que queda)** — los otros 3 servicios: `order-matching-engine` (el exactly-once del
+  lado del productor, que en SmallRye se hace con `transactional=true`), `alerting-service` (Streams
+  con punctuator) y `audit-log` (outbox con Postgres). Después, `group.id` y topics de salida
+  propios para correr los dos stacks a la vez y la imagen nativa de GraalVM para dos servicios (el
+  spec pide *at least two*) con las medidas de arranque y memoria.
 
 ## Arranque rápido (todo desde el devcontainer)
 ```bash
@@ -543,6 +552,20 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-
 # Para volver a la version Spring
 pkill -TERM -f "quarkus-app/quarkus-run.jar"
 bash scripts/start-services.sh
+```
+
+### Verificar la Fase 8 (el port de la cartera)
+```bash
+pkill -TERM -f "target/portfolio-risk-spring"
+cd /workspaces/aggora/services/quarkus/portfolio-risk
+setsid java -jar target/quarkus-app/quarkus-run.jar > /tmp/portfolio-risk-quarkus.log 2>&1 &
+#   portfolio-risk 0.1.0-SNAPSHOT on JVM (powered by Quarkus 3.39.3) started in 1.066s
+#   [cartera] ACC-01 USO | cantidad=806 coste medio=... P&L realizado=... exposicion=...
+grep -E "started in|\[cartera\]" /tmp/portfolio-risk-quarkus.log | tail -3
+
+# Para volver a la versión Spring
+pkill -TERM -f "quarkus-app/quarkus-run.jar"
+cd /workspaces/aggora && bash scripts/start-services.sh
 ```
 
 ### Verificar la Fase 8 (el port de la analítica)
