@@ -704,3 +704,27 @@ Los dos tests, y lo que cazan que un mock no puede:
 han podido ejecutar en esta máquina**: el devcontainer no tiene Docker y sacarlos por un contenedor
 de Maven desde WSL se quedó en el intento (`Could not find a valid Docker environment`). Corren en
 el CI de GitHub, que es donde tienen que correr.
+
+## Fase 8: los dos stacks a la vez (el experimento que cierra la fase)
+
+Es lo que pidió el spec y lo que demuestra que el port es una comparación de verdad y no dos repos
+paralelos: **los dos stacks procesando la misma entrada al mismo tiempo**, con
+`bash scripts/start-quarkus-stack.sh`.
+
+| Como se evita que se pisen | Por que |
+|---|---|
+| La **entrada es la misma** (`market.ticks.raw` y `orders.incoming`) | Es lo que hace la comparación A/B: los dos ven los mismos datos. El **simulador corre solo en la versión Spring**, a propósito: dos simuladores duplicarían el tráfico y ya no se compararía lo mismo |
+| **Grupo de consumo distinto** en cada consumidor (`-q`) | Kafka reparte las particiones **dentro de cada grupo**, así que los dos leen todos los datos; con el mismo grupo se las repartirían entre ellos y ninguno tendría el pipeline completo |
+| **Topic de salida propio** (sufijo `.q`) | Cada stack escribe en sus topics y las cifras se pueden leer por separado |
+| **`application-id` y directorio de estado propios** en los tres motores de Streams | Dos aplicaciones de Streams con el mismo `application-id` se reparten las particiones y **ninguna de las dos tiene el estado completo**: sería la peor forma de comparar |
+| Propiedades con `-D` y no con variables de entorno | Los nombres de canal llevan guiones y el mapeo de Quarkus para el entorno es exacto; `-D` usa el nombre literal |
+
+**Resultado medido** (con los dos stacks en marcha, 13 JVMs): los dos pipelines procesan a la vez y
+cada uno en sus topics —`market.analytics` 3.681.665 mensajes frente a `market.analytics.q`
+2.899.871, y `portfolio.updates` 42.130 frente a `portfolio.updates.q` 1.920`—. Los servicios de
+Quarkus arrancaron entre 1,1 s y 4,2 s: **más lentos que en las medidas en solitario** (1,0-1,5 s),
+porque ahora compiten por CPU con los siete de Spring. Eso también es un dato: las cifras de arranque
+de `SPRING_VS_QUARKUS.md` son de una máquina en reposo, y en un servidor compartido la diferencia se
+estrecha.
+
+Y para pararlo, `bash scripts/stop-quarkus-stack.sh` (el de Spring se para con `stop-services.sh`).

@@ -337,6 +337,10 @@
   `OutboxPostgresIT` contra un Postgres real— más el **workflow de CI** (`.github/workflows/ci.yml`):
   unitarios en cada push, integración en cada PR. **No se han podido ejecutar aquí**: el devcontainer
   no tiene Docker, igual que con el nativo. Compilan y corren en el CI.
+- ✅ **Los dos stacks a la vez** (hecho): `bash scripts/start-quarkus-stack.sh` levanta la
+  implementación de Quarkus **en paralelo** con la de Spring, misma entrada y salidas propias
+  (`market.analytics.q`, `portfolio.updates.q`, …), cada motor de Streams con su `application-id` y
+  su estado. Verificado: los dos pipelines procesan a la vez. Detalle en `docs/decisions.md`.
 - ⏭️ **Fase 8 (lo que queda)** — la **imagen nativa de GraalVM** para dos servicios y las medidas, y
   correr los dos stacks a la vez (con `group.id` y topics de salida propios).
   El nativo **intentado y bloqueado en esta máquina**: la receta corregida está en
