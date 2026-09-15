@@ -9,7 +9,9 @@ spring:
 
   kafka:
     # Nombre interno dentro de aggora-net. Nunca localhost (ver README).
-    bootstrap-servers: kafka:9092
+        # Cluster de 3 brokers (Fase 6): se listan los tres para que si uno esta caido
+    # el cliente se entere por los otros. Los topics usan replicas: 3.
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
     streams:
       application-id: analytics-streams
       client-id: analytics-streams
@@ -22,6 +24,9 @@ spring:
         default.value.serde: io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde
         # El serde de Avro necesita saber donde esta el registry.
         schema.registry.url: http://schema-registry:8081
+        # Topics internos de Streams (changelog y reparticion) con 3 replicas:
+        # el estado de las ventanas tiene que sobrevivir a un broker caido.
+        replication.factor: 3
         # Sin cache de estado: cada tick produce una metrica actualizada y se ve el
         # resultado al momento. Con cache se agruparia y habria menos escrituras.
         statestore.cache.max.bytes: 0

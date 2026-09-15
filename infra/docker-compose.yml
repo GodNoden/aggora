@@ -1,66 +1,60 @@
 services:
-  kafka:
+  # Cluster de 3 brokers en KRaft (Fase 6). Los tres nodos son a la vez broker y
+  # controller, con quorum entre ellos: es lo que permite replicas: 3 y sobrevivir a la
+  # caida de un nodo. La configuracion comun va en un ancla de YAML para no repetirla.
+  kafka-1: &kafka-common
     image: apache/kafka:3.9.0
-    container_name: aggora-kafka
-    # Si se reinicia Docker Desktop/WSL, este contenedor vuelve solo.
-    restart: unless-stopped
-    hostname: kafka
+    container_name: aggora-kafka-1
+    hostname: kafka-1
     ports:
-      # Solo publicamos el listener EXTERNAL hacia WSL/Windows.
-      # El INTERNAL (9092) no se publica: vive solo dentro de aggora-net.
       - "29092:29092"
-    environment:
-      # --- Identidad del nodo ---
+    environment: &kafka-env
       KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,EXTERNAL://localhost:29092
       KAFKA_PROCESS_ROLES: broker,controller
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk # cualquier base64 de 22 chars
-
-      # --- Listeners ---
-      # Escuchamos en tres puertos:
-      #   9092 -> INTERNAL (para contenedores de aggora-net)
-      #   9093 -> CONTROLLER (uso interno de KRaft, no es para clientes)
-      #   29092 -> EXTERNAL (para procesos fuera de Docker)
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
       KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
-      # Qué dirección le dice Kafka a cada cliente según el listener
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
-
-      # --- Roles internos ---
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-
-      # --- Ajustes para dev (un solo broker, sin réplicas) ---
-      # En producción estos tres cambian; los tocamos en Fase 6.
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      # --- Replicacion: el objetivo de la fase ---
+      # 3 copias de cada particion y, para dar una escritura por buena, al menos 2
+      # copias confirmadas. Con eso, un broker caido se sobrevive; dos, no se escribe
+      # (que es la garantia: mejor parar que perder datos).
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       # Nada de topics fantasma: solo existen los que declara el codigo con NewTopic.
-      # Con la autocreacion activa, un typo en un nombre crea un topic de 1 particion
-      # en silencio y el error aparece mucho despues (nos paso con un console consumer).
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    restart: unless-stopped
     networks:
       - aggora-net
 
-  # Topics internos que NO declara el codigo de la aplicacion. Con la autocreacion
-  # apagada hay que crearlos aqui: el Schema Registry no crea su propio _schemas si
-  # auto.create.topics.enable esta en false, y sin el se queda atascado (y el
-  # serializador Avro bloquea al productor, porque serializa en su mismo hilo).
-  # Es un contenedor de un solo uso: crea y termina.
-  kafka-init:
-    image: apache/kafka:3.9.0
-    container_name: aggora-kafka-init
-    depends_on:
-      - kafka
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
-          --topic _schemas --partitions 1 --replication-factor 1 --config cleanup.policy=compact
-        echo "topics internos listos"
-    networks:
-      - aggora-net
+  kafka-2:
+    <<: *kafka-common
+    container_name: aggora-kafka-2
+    hostname: kafka-2
+    ports:
+      - "29093:29092"
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,EXTERNAL://localhost:29093
+
+  kafka-3:
+    <<: *kafka-common
+    container_name: aggora-kafka-3
+    hostname: kafka-3
+    ports:
+      - "29094:29092"
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,EXTERNAL://localhost:29094
 
   # Schema Registry (Fase 2): guarda los esquemas Avro y decide si un cambio de
   # esquema es compatible. No es un broker: es un servicio HTTP que además usa
@@ -72,7 +66,9 @@ services:
     restart: unless-stopped
     hostname: schema-registry
     depends_on:
-      - kafka
+      - kafka-1
+      - kafka-2
+      - kafka-3
     ports:
       # Publicado para poder mirarlo desde WSL/Windows con curl.
       - "8081:8081"
@@ -80,7 +76,7 @@ services:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       # Se habla con el broker por el nombre interno de aggora-net.
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka-1:9092,kafka-2:9092,kafka-3:9092
       # Dev: un solo broker, así que los topics internos van sin réplicas.
       SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
     networks:
@@ -111,8 +107,15 @@ services:
     container_name: aggora-kafka-exporter
     hostname: kafka-exporter
     depends_on:
-      - kafka
-    command: ["--kafka.server=kafka:9092"]
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    # Ojo: esta opcion NO acepta una lista con comas; hay que repetirla por broker,
+    # o el exporter intenta resolver la cadena entera como si fuese un solo host.
+    command:
+      - "--kafka.server=kafka-1:9092"
+      - "--kafka.server=kafka-2:9092"
+      - "--kafka.server=kafka-3:9092"
     ports:
       - "9308:9308"
     restart: unless-stopped

@@ -16,11 +16,15 @@ public class KafkaTopicsConfig {
      *    clave. Es lo que permite que un publicador que repita un mensaje no haga dano.
      *  - 3 particiones (como fija el spec), suficiente para el volumen de auditoria.
      */
+    // Los topics se declaran SIN replicas explicitas: el broker aplica su default
+    // (KAFKA_DEFAULT_REPLICATION_FACTOR, que en el cluster de la Fase 6 es 3). Asi el mismo
+    // codigo vale para un broker suelto o para tres, y no hay que tocar el codigo al
+    // cambiar de tamano el cluster.
+
     @Bean
     public NewTopic auditEvents(AggoraProperties props) {
         return TopicBuilder.name(props.topics().auditEvents())
                 .partitions(3)
-                .replicas(1)
                 .config("cleanup.policy", "compact")
                 .build();
     }

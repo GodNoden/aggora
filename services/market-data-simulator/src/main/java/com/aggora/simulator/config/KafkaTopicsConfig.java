@@ -18,11 +18,15 @@ import org.springframework.kafka.config.TopicBuilder;
 @Configuration
 public class KafkaTopicsConfig {
 
+    // Los topics se declaran SIN replicas explicitas: el broker aplica su default
+    // (KAFKA_DEFAULT_REPLICATION_FACTOR, que en el cluster de la Fase 6 es 3). Asi el mismo
+    // codigo vale para un broker suelto o para tres, y no hay que tocar el codigo al
+    // cambiar de tamano el cluster.
+
     @Bean
     public NewTopic rawTicks(AggoraProperties props) {
         return TopicBuilder.name(props.topics().ticksRaw())
                 .partitions(6)
-                .replicas(1)
                 .build();
     }
 
@@ -35,7 +39,6 @@ public class KafkaTopicsConfig {
     public NewTopic ordersIncoming(AggoraProperties props) {
         return TopicBuilder.name(props.topics().ordersIncoming())
                 .partitions(6)
-                .replicas(1)
                 .build();
     }
 }

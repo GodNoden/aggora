@@ -30,7 +30,6 @@ public class PortfolioConfig {
     public NewTopic portfolioUpdates(AggoraProperties props) {
         return TopicBuilder.name(props.topics().portfolioUpdates())
                 .partitions(6)
-                .replicas(1)
                 .build();
     }
 }

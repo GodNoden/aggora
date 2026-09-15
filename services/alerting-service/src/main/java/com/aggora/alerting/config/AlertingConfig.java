@@ -30,7 +30,6 @@ public class AlertingConfig {
     public NewTopic alertsRaised(AggoraProperties props) {
         return TopicBuilder.name(props.topics().alertsRaised())
                 .partitions(3)
-                .replicas(1)
                 .build();
     }
 }
