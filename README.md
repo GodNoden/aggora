@@ -165,6 +165,13 @@
     productor tenía en el buffer).
     Los topics se declaran **sin réplicas explícitas** (manda el default del broker) y los
     topics internos de Streams llevan `replication.factor: 3`.
+- 🐛 **Fallo silencioso encontrado y arreglado** — Kafka Streams, ante un error que no puede
+  manejar, **para el cliente pero deja vivo el proceso**: el endpoint respondía y el servicio
+  no procesaba nada. Ahora los tres servicios de Streams definen un
+  `StreamsUncaughtExceptionHandler` que **sustituye el hilo** (`REPLACE_THREAD`) en vez de
+  matar el cliente, y el endpoint de consultas devuelve un **503 explicando** el estado ERROR
+  en lugar de un 500 genérico. Verificado recreando el escenario que lo provocaba (borrar el
+  topic compactado): el servicio sigue calculando métricas y respondiendo.
 - 🧱 **Operación (aprendido a golpes)** — Se reinició el entorno (Docker Desktop/WSL) y se
   cayeron los 7 servicios y los 3 contenedores. Al volver, **no se perdió nada**: 29 topics,
   22 esquemas y 131.932 eventos auditados seguían ahí, porque el estado vive en Kafka y

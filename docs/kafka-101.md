@@ -609,6 +609,18 @@ la infraestructura vuelva sola si se reinicia Docker Desktop, y dos scripts
 (`scripts/start-services.sh` y `scripts/stop-services.sh`) que arrancan y paran los siete
 servicios en orden, esperando a que cada uno esté listo.
 
+**5. El peor fallo no es el que para el sistema, sino el que lo deja vivo sin trabajar.**
+Operando el clúster apareció uno de esos: Kafka Streams, ante un error que no puede manejar
+solo, **para el cliente** (pasa a estado ERROR) pero **el proceso Java sigue vivo**: el
+endpoint HTTP responde, el servicio parece sano, y no procesa nada. Un fallo silencioso. La
+causa era la de antes (el checkpoint del GlobalKTable apuntando a offsets que la compactación
+se había llevado).
+
+Se arregla con un `StreamsUncaughtExceptionHandler` que devuelve `REPLACE_THREAD`: en vez de
+matar el cliente, se sustituye el hilo que falló y el servicio se recupera solo. Además, el
+endpoint de consultas ahora comprueba el estado de Streams y devuelve **503 diciendo qué
+pasa** en vez de un 500 genérico: si algo va a fallar en silencio, al menos que lo diga.
+
 **Lo que sigue faltando:** los procesos Java no los supervisa nadie. En producción eso lo
 hace Kubernetes (o systemd): si un servicio se cae, se vuelve a levantar solo. Aquí hay que
 ejecutar el script, que es la diferencia entre "resiliente" y "recuperable a mano".

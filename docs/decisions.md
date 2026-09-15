@@ -275,3 +275,12 @@ y los arreglos:
 | `--kafka.server` del exporter **repetido** por broker | No acepta una lista con comas: intenta resolver la cadena entera como un solo host y falla (`too many colons in address`). Descubierto en vivo |
 | El clúster nuevo empezó con los topics vacíos | El almacenamiento del broker único no se puede reutilizar (era otro clúster). Lo que importaba —los 131.932 eventos auditados— está en Postgres y sigue ahí. Los topics y esquemas se recrean solos al arrancar los servicios |
 
+### Fallo silencioso de Kafka Streams (encontrado operando) y su arreglo
+
+| Hallazgo | Arreglo |
+|---|---|
+| Kafka Streams, ante un error no recuperable, **para el cliente** (estado ERROR) pero **el proceso Java sigue vivo**: el endpoint HTTP responde y el servicio parece sano mientras no procesa nada | Un `StreamsUncaughtExceptionHandler` que devuelve **`REPLACE_THREAD`**: se sustituye el hilo que falló en vez de matar el cliente, y el servicio se recupera solo. Es lo que recomienda la documentación de Kafka Streams |
+| El endpoint de consultas devolvía un **500 genérico** cuando el motor estaba en ERROR | Comprueba `streams.state()` y devuelve **503 con el motivo**. Si algo va a fallar en silencio, que al menos lo diga |
+| La causa concreta era el **GlobalKTable sobre un topic compactado**: su checkpoint apunta a offsets que la compactación (o recrear el topic) se lleva por delante | Se queda documentado: un topic compactado no es un histórico fiable, solo el último estado por clave. Con el manejador nuevo, el hilo se sustituye y el estado global se relee |
+| Se perdió un rato persiguiendo un `NoSuchMethodError` que era **basura de compilación**: el `.class` decía una cosa y el código otra | Conclusión práctica: ante un error raro de firma o de clase que no cuadra con el código, `mvn clean` antes de investigar nada más |
+
