@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "MetricsAccumulator",
+  "namespace": "com.aggora.avro.analytics",
+  "doc": "Estado interno de la agregacion por ventana. Kafka Streams lo guarda en un state store (RocksDB) y en su topic de changelog, asi que sobrevive a un reinicio del servicio. NO es un contrato publico: puede cambiar sin avisar a nadie. Los importes van en double porque es aritmetica interna; en el contrato de salida (SymbolMetrics) ya salen como decimal.",
+  "fields": [
+    {"name": "ticks", "type": "long"},
+    {"name": "volume", "type": "long"},
+    {"name": "sumPrice", "type": "double"},
+    {"name": "sumPriceSize", "type": "double", "doc": "Suma de precio*volumen, para el VWAP."},
+    {"name": "sumSqPrice", "type": "double", "doc": "Suma de precio^2, para la volatilidad."},
+    {"name": "lastPrice", "type": "double"},
+    {"name": "currency", "type": "string", "doc": "Ultima divisa vista en la ventana; se copia al contrato de salida."}
+  ]
+}

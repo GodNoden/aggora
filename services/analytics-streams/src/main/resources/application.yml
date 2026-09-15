@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: analytics-streams
+
+  kafka:
+    # Nombre interno dentro de aggora-net. Nunca localhost (ver README).
+    bootstrap-servers: kafka:9092
+    streams:
+      application-id: analytics-streams
+      client-id: analytics-streams
+      # Estado local de los state stores. Si se borra, Kafka Streams lo reconstruye
+      # desde los topics de changelog.
+      state-dir: /tmp/aggora-streams-state
+      properties:
+        # Los serdes por defecto son Avro: la topologia los usa al materializar estado.
+        default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        default.value.serde: io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde
+        # El serde de Avro necesita saber donde esta el registry.
+        schema.registry.url: http://schema-registry:8081
+        # Sin cache de estado: cada tick produce una metrica actualizada y se ve el
+        # resultado al momento. Con cache se agruparia y habria menos escrituras.
+        statestore.cache.max.bytes: 0
+        commit.interval.ms: 1000
+        # Un solo hilo y un solo broker en dev; en produccion esto se sube.
+        num.stream.threads: 1
+        # Si no hay offset guardado para el grupo, empieza por el principio del topic.
+        auto.offset.reset: earliest
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    ticks-canonical: market.ticks.canonical
+    analytics: market.analytics
+  # Ventanas cortas para poder ver resultados mientras miras.
+  windows:
+    tumbling-size: 30s    # bloques fijos de 30 s, sin solape
+    hopping-size: 60s     # ventana de 60 s...
+    hopping-advance: 15s  # ...recalculada cada 15 s (se solapa con la anterior)
+    grace: 5s             # margen antes de dar una ventana por cerrada

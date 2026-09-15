@@ -1,0 +1,42 @@
+{
+  "type": "record",
+  "name": "SymbolMetrics",
+  "namespace": "com.aggora.avro.analytics",
+  "doc": "Metricas de un instrumento calculadas sobre una ventana de tiempo. Es el contrato de market.analytics (subject market.analytics-value).",
+  "fields": [
+    {"name": "symbol", "type": "string"},
+    {"name": "currency", "type": "string", "doc": "Divisa en la que estan expresadas las metricas."},
+    {
+      "name": "windowKind",
+      "type": {
+        "type": "enum",
+        "name": "WindowKind",
+        "symbols": ["TUMBLING", "HOPPING"]
+      },
+      "doc": "TUMBLING = bloques fijos que no se solapan. HOPPING = bloques que se solapan, recalculados cada poco."
+    },
+    {"name": "windowStart", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "windowEnd", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "ticks", "type": "long", "doc": "Cuantos ticks cayeron en la ventana."},
+    {"name": "volume", "type": "long", "doc": "Suma de tamanos. Los ticks de referencia (size 0) no suman volumen."},
+    {
+      "name": "vwap",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Precio medio ponderado por volumen: suma(precio*volumen)/suma(volumen). 0 si no hubo volumen."
+    },
+    {
+      "name": "movingAverage",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Media simple de los precios de la ventana."
+    },
+    {
+      "name": "volatility",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4},
+      "doc": "Desviacion tipica de los precios dentro de la ventana (dispersion, no rendimiento)."
+    },
+    {
+      "name": "lastPrice",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4}
+    }
+  ]
+}

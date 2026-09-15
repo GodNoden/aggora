@@ -30,6 +30,7 @@
   <modules>
     <module>market-data-simulator</module>
     <module>ingestion-normalizer</module>
+    <module>analytics-streams</module>
   </modules>
 
   <properties>
