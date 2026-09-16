@@ -39,10 +39,7 @@ Léelo así:
   montan más piezas móviles): en `audit-log`, 58 hilos y 100 descriptores frente a 49 y 57 de
   Spring. Es el precio de la parte reactiva.
 
-**Lo que NO está medido**: el binario nativo. En esta máquina no se pudo completar (los cuatro
-tropiezos están en `docs/decisions.md`) y la receta queda en `scripts/build-native.sh`. Cuando se
-compile, la comparación honesta es contra el arranque del proceso: ahí es donde un nativo se separa
-de una JVM por un orden de magnitud, y donde tiene sentido contarlo.
+**Y el binario nativo**, que es donde la comparación se rompe de verdad (sección 5).
 
 ---
 
@@ -119,3 +116,44 @@ observabilidad y ciclo de vida para el motor. En esta fase, ese punto lo ganó Q
 son servicios de toda la vida; Quarkus si hay que escalar a cero o el arranque importa; y en los dos
 casos, invertir el esfuerzo en lo que de verdad se rompe en producción —esquemas, transacciones,
 reintentos y sondas— antes que en el framework.
+
+---
+
+## 5. El binario nativo
+
+Dos servicios compilados con GraalVM (`ingestion-normalizer` y `market-data-simulator`, el mínimo
+que pide el spec), con `scripts/build-native.sh`:
+
+| Mismo servicio | Spring (JVM) | Quarkus (JVM) | **Quarkus (nativo)** |
+|---|---|---|---|
+| Arranque | 2,099 s | 1,123 s | **0,022 s** |
+| RSS en reposo | 428 MB | 332 MB | **114-124 MB** |
+| Hilos | 37 | 45 | **15** |
+| Tamaño en disco | — | — | 91,7 MB |
+
+**Cincuenta veces menos arranque que Quarkus en la JVM y noventa veces menos que Spring**, y un
+tercio de la memoria. El binario **consume y publica de verdad**: Avro y el Schema Registry
+funcionan dentro de una imagen nativa. El precio es el tamaño (91,7 MB) y, sobre todo, lo que cuesta
+llegar hasta aquí.
+
+### Los gotchas del nativo (lo que pide el spec, y son cuatro)
+
+1. **BouncyCastle (TLS)**: el cliente del Schema Registry referencia `BCSSLSocket` para TLS opcional.
+2. **Brotli (compresión)**: el cliente de Kafka y Netty referencian el decodificador.
+3. **commons-compress + xz**: el cliente usa API nueva (`XZCompressorInputStream.builder()`) y hay que subir la versión que arrastra Confluent.
+4. **La reflexión**: el serializador construye la estrategia de nombre de subject por reflexión
+   (`Utils.newInstance`), y en una imagen nativa la reflexión no existe salvo que se declare.
+
+La frase que resume los cuatro: **en una imagen nativa no existe lo "opcional en tiempo de
+ejecución"**. Y una lección de método que vale más que el número: arreglar el cuarto **clase a
+clase** costaba una compilación de cuatro minutos por error. Se resolvió **generando el fichero de
+reflexión desde los propios jars** (169 clases a `META-INF/native-image/.../reflect-config.json`), y
+con eso el **segundo binario salió a la primera**.
+
+### Qué significa para la decisión
+
+El nativo no cambia la recomendación de la sección 4: no migras siete servicios por un segundo de
+arranque. La cambia para **serverless y para plataformas que cobran por memoria**: 0,022 s de
+arranque es lo que hace viable escalar a cero, y 114 MB en reposo es la mitad de factura que 332 MB.
+Si ese es tu problema, el nativo lo resuelve; si no, es un fin de semana de gotchas que no vas a
+amortizar.
