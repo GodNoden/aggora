@@ -926,3 +926,39 @@ Para comparar de verdad hacen falta dos cosas: que los dos estén **con lag 0**,
 carga** que empuje un caudal controlado (`kafka-producer-perf-test` contra `market.ticks.raw`) en vez
 del caudal natural del simulador (~70 msg/s), que no estresa a ninguno de los dos. Queda pendiente
 con la receta escrita; el montaje ya está hecho.
+
+
+## Revision final contra la checklist del spec (seccion 8)
+
+| Entregable | Estado |
+|---|---|
+| `docker-compose.yml` con la infraestructura | ✅ `infra/docker-compose.yml` (3 brokers + SR + Postgres + Prometheus + Grafana + exporter) |
+| Implementacion Spring de todos los servicios | ⚠️ **7 de los ~10** que sugiere el spec: falta **`gateway-ws`** (fan-out por WebSocket a un frontend) |
+| Implementacion Quarkus de todos los servicios | ⚠️ los mismos 7 |
+| Al menos 2 builds nativos con benchmarks | ✅ `ingestion-normalizer` y `market-data-simulator`: **0,022 s** de arranque y **114-124 MB** de RSS |
+| Panel de Grafana (JSON exportado) | ✅ `infra/grafana/dashboards/aggora-kafka.json`, provisionado desde el repo |
+| `SPRING_VS_QUARKUS.md` | ✅ con la seccion del nativo |
+| `README.md` con como arrancarlo y el mapa concepto → servicio | ✅ (la tabla "What is demonstrated here?" es eso) |
+
+**El unico hueco real es `gateway-ws`**: un consumidor de fan-out que empuje los datos en vivo a un
+frontend por WebSocket. No estaba en ninguna de las fases que se acordaron (la Fase 0-9 del spec
+nombra los otros siete), pero la checklist lo cuenta, asi que queda dicho aqui en vez de
+descubrirlo al final. Es un servicio pequeno y bien delimitado: consume `market.ticks.canonical` y
+`portfolio.updates`, y los reparte por WebSocket a los clientes conectados (practicando el
+`Consumer (fan-out)` que pide el spec).
+
+## El throughput: la comparacion que si vale
+
+Con **los dos pipelines al dia** (`analytics-streams` con lag 2 y `analytics-streams-q` con lag 9, o
+sea los dos al corriente) y **la misma entrada**, la medida es:
+
+| Pipeline | Entrada | Salida |
+|---|---|---|
+| Spring (`market.analytics`) | la misma (~70 msg/s) | **84 msg/s** |
+| Quarkus (`market.analytics.q`) | la misma (~70 msg/s) | **84 msg/s** |
+
+**Idénticos.** Y esa es la conclusión honesta: a esta escala el pipeline está limitado por la
+**entrada**, no por el framework, así que la elección entre Spring y Quarkus no se decide por
+throughput. Para separarlos haría falta un **test de estrés** (miles de msg/s con
+`kafka-producer-perf-test` contra `market.ticks.raw`, o varios simuladores a la vez) hasta que el
+coste por mensaje de cada framework empiece a notarse. Queda anotado con la receta.
