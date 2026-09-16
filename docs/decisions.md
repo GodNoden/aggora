@@ -1182,3 +1182,26 @@ el de Quarkus) se ejecutan **en local y en el CI**, con la misma línea de Testc
 árboles. Y una lección que ya había aparecido dos veces en este diario: cuando un test "no se puede
 ejecutar aquí", conviene comprobar **por qué** antes de aceptarlo como límite del entorno.
 
+## El IT de Quarkus en el CI: Dev Services no arranca si el bootstrap ya está configurado
+
+Al habilitar el IT de Quarkus en el CI, el runner falló con
+`No resolvable bootstrap urls given in bootstrap.servers` apuntando a `kafka-1:9092`. La causa no era
+el test: **Quarkus no levanta los Dev Services de Kafka si `kafka.bootstrap.servers` ya viene
+configurado**, y el módulo lo fijaba en `application.properties` para el servicio real. En el
+devcontainer el test pasaba **por casualidad**, porque `kafka-1` sí resuelve ahí (el clúster del
+compose está al lado); en el runner no existe ese DNS.
+
+Arreglo: el valor real va con **prefijo `%prod.`** (el jar empaquetado corre en `prod`, que es como
+lo arrancan los scripts, el stack paralelo y la VM), y en test lo inyectan los Dev Services. Lo mismo
+con los cuatro `mp.messaging.*.schema.registry.url`: si están fijados, la extensión de Confluent no
+puede sustituirlos por el registro que levanta Apicurio en los tests.
+
+Verificado en local: con los prefijos, el log dice `Dev Services for Kafka started` y
+`Dev Services for Apicurio Registry started`, y el IT pasa en 10,3 s (antes 38 s, porque el broker
+es el del contenedor). Y el jar empaquetado sigue arrancando contra el clúster del compose (perfil
+`prod`) sin errores de resolución.
+
+Lección (la cuarta de la misma familia): un test que pasa en tu máquina puede estar pasando **por el
+entorno**, no por el código. Si el test depende de Dev Services, hay que comprobar en el log que los
+Dev Services **arrancan**.
+
