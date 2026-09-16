@@ -351,9 +351,15 @@
     # -> Tests run: 1, Failures: 0, Errors: 0  (38 s, con Kafka y Schema Registry por Dev Services)
     ```
     `TESTCONTAINERS_RYUK_DISABLED=true` es lo que faltaba: el motor de Docker sí se alcanza desde el
-    devcontainer; lo que no se alcanza es **Ryuk**. Los `*IT` de Spring siguen necesitando el CI
-    (su Testcontainers, más viejo, no negocia con el socket de Docker Desktop). Detalle en
-    `docs/dev-environment.md`.
+    devcontainer; lo que no se alcanza es **Ryuk**. Y los `*IT` de **Spring también** corren en local
+    desde que su Testcontainers subió a la 2.x (la misma línea que Quarkus): antes, la 1.21.3 que fija
+    Spring Boot no negociaba con el socket de Docker Desktop. Los tres IT, en local:
+    ```bash
+    docker exec -u vscode -e TESTCONTAINERS_RYUK_DISABLED=true <devcontainer> \
+      bash -lc 'cd /workspaces/aggora/services && mvn verify -pl spring/audit-log,spring/order-matching-engine,quarkus/ingestion-normalizer -am'
+    # ExactlyOnceKafkaIT 1/1 · OutboxPostgresIT 2/2 · NormalizerKafkaIT 1/1
+    ```
+    Detalle (y las tres aristas de la migración a 2.x) en `docs/dev-environment.md`.
   - Ojo con `ExactlyOnceKafkaIT`: falló en CI dos veces y **el primer diagnóstico fue falso** ("es una
     carrera al leer"). La causa real es que `send()` es asíncrono y `abortTransaction()` descarta lo
     que el hilo emisor no ha mandado, así que el registro abortado no llegaba a existir. El test ahora

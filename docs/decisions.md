@@ -1159,3 +1159,26 @@ del consumidor es idéntica en los dos (`max.poll.records=200`, mismo deserializ
 manual), así que la diferencia es el **modelo de despacho**, no un desajuste. Y la tasa sostenible
 baja de los ~900/s que sugerían las ráfagas de 20 s a **600-800/s por stack** en este portátil.
 
+## Los tests de integración de Spring también corren en local: era la versión de Testcontainers
+
+La conclusión anterior era "el Testcontainers de Spring no negocia con el socket de Docker Desktop,
+así que esos `*IT` solo corren en el CI". Se preguntó si no se podía actualizar, y **sí se podía**:
+era exactamente eso, la versión. Spring Boot 4.1.1 fija Testcontainers **1.21.3** y Quarkus usa
+**2.0.5**; subiendo la propiedad `testcontainers.version` del padre de Spring a la 2.0.5, los dos
+`*IT` pasan **en local** (`ExactlyOnceKafkaIT` 1/1 en 30,6 s, `OutboxPostgresIT` 2/2 en 4,2 s), con
+`TESTCONTAINERS_RYUK_DISABLED=true` —que es lo único que no se alcanza desde el devcontainer: el
+reaper de Testcontainers, no el motor de Docker—.
+
+La migración a 2.x tiene tres aristas que conviene tener escritas:
+
+| Qué | Antes (1.21.3) | Ahora (2.0.5) |
+|---|---|---|
+| Coordenadas de los módulos | `org.testcontainers:kafka`, `:postgresql`, `:junit-jupiter` | `testcontainers-kafka`, `testcontainers-postgresql`, `testcontainers-junit-jupiter` (Maven no encuentra los nombres viejos) |
+| Contenedor de Kafka | `org.testcontainers.containers.KafkaContainer` | `org.testcontainers.kafka.ConfluentKafkaContainer` (Confluent) o `KafkaContainer` (Apache) |
+| Imagen del broker en el test | `confluentinc/cp-kafka:7.6.1` | la misma: con `apache/kafka:3.9.0` el contenedor sale con código 1 (esa imagen exige todas las variables de KRaft y el módulo no las pone) |
+
+A cambio se gana lo que el proyecto quería desde el principio: los **tres** `*IT` (dos de Spring y
+el de Quarkus) se ejecutan **en local y en el CI**, con la misma línea de Testcontainers en los dos
+árboles. Y una lección que ya había aparecido dos veces en este diario: cuando un test "no se puede
+ejecutar aquí", conviene comprobar **por qué** antes de aceptarlo como límite del entorno.
+

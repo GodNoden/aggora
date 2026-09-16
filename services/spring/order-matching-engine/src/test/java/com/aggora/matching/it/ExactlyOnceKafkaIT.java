@@ -26,7 +26,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.KafkaContainer;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -64,7 +64,14 @@ class ExactlyOnceKafkaIT {
     private static final Network RED = Network.newNetwork();
 
     @Container
-    static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.1"))
+    // En Testcontainers 2.x el contenedor de Kafka cambio de paquete (`org.testcontainers.kafka`) y
+    // hay una clase por familia de imagenes: `ConfluentKafkaContainer` para las de Confluent (la que
+    // ya usaba este test) y `KafkaContainer` para la de Apache. Se mantiene la de Confluent a
+    // proposito: es la que daba verde en el CI y aqui solo se cambia la version del cliente, no la
+    // imagen. (Se probo la de Apache con `KafkaContainer` y el contenedor sale con codigo 1: esa
+    // imagen exige todas las variables de KRaft y el modulo no las pone por ti.)
+    static final ConfluentKafkaContainer KAFKA =
+            new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.1"))
             .withNetwork(RED)
             .withNetworkAliases("kafka");
 
