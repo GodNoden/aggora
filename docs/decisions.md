@@ -774,3 +774,21 @@ dos lados:
 Requiere **otra reconstrucción** del contenedor (y el nombre volverá a cambiar). Es el mismo
 problema que apareció al compilar el nativo desde un contenedor de Maven con el socket montado, y se
 resolvió igual: montando el repo en la misma ruta.
+
+### El nativo, por fin compilando: el gotcha de BouncyCastle
+
+Con el devcontainer ya con Docker y la ruta del proyecto montada en los dos sitios, la compilación
+del nativo **llega al compilador de GraalVM** y falla ahí, con el tipo de error que la Fase 9 pide
+documentar:
+
+```
+Fatal error: Error encountered while parsing
+  io.confluent.kafka.schemaregistry.client.ssl.HostSslSocketFactory.createSocket
+Caused by: Discovered unresolved type during parsing: org.bouncycastle.jsse.BCSSLSocket
+```
+
+Lo que pasa: el cliente del Schema Registry de Confluent referencia una clase de **BouncyCastle**
+para TLS opcional. En la JVM no importa mientras no se use TLS, pero **GraalVM analiza todo el
+bytecode alcanzable** y no puede resolver un tipo que no está en el classpath: lo que en la JVM es
+una dependencia opcional, para el análisis estático es obligatoria. Arreglo: poner BouncyCastle
+(`bcprov-jdk18on` y `bctls-jdk18on`) en el classpath de los módulos de Quarkus.

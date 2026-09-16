@@ -56,6 +56,34 @@
     </dependencies>
   </dependencyManagement>
 
+  <!--
+    BouncyCastle: NO lo usa el codigo, pero hace falta para poder compilar el BINARIO NATIVO.
+
+    El cliente del Schema Registry de Confluent referencia org.bouncycastle.jsse.BCSSLSocket en su
+    HostSslSocketFactory (TLS opcional). En la JVM eso da igual mientras no se use TLS, pero GraalVM
+    analiza TODO el bytecode alcanzable y falla al no resolver el tipo:
+
+        Fatal error: ... Error encountered while parsing
+        io.confluent.kafka.schemaregistry.client.ssl.HostSslSocketFactory.createSocket
+        Caused by: Discovered unresolved type during parsing: org.bouncycastle.jsse.BCSSLSocket
+
+    Con BouncyCastle en el classpath el tipo se resuelve y la imagen se genera. Es el tipo de
+    "gotcha" de imagen nativa que la Fase 9 pide documentar: una dependencia OPCIONAL en la JVM que
+    es OBLIGATORIA para el analisis estatico.
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>1.81</version>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bctls-jdk18on</artifactId>
+      <version>1.81</version>
+    </dependency>
+  </dependencies>
+
   <repositories>
     <repository>
       <id>confluent</id>
