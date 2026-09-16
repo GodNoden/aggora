@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SERVICES=(market-data-simulator ingestion-normalizer analytics-streams order-matching-engine portfolio-risk alerting-service audit-log)
+SERVICES=(market-data-simulator ingestion-normalizer analytics-streams order-matching-engine portfolio-risk alerting-service audit-log gateway-ws)
 
 for service in "${SERVICES[@]}"; do
   if pgrep -f "[j]ava -jar target/$service" >/dev/null; then

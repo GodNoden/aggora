@@ -992,3 +992,110 @@ Medido: **180 ticks, 10 posiciones y 30 alertas en 12 segundos**, con las dos im
   WebSockets Next ya devuelve un `Uni` y el problema no existe.
 - **No hay estado.** El gateway no guarda nada: si se cae, se levanta y la pantalla se rellena en
   cuanto llegan los siguientes eventos. Es un espejo, no una base de datos.
+
+## 21. La Fase 10 en la práctica: qué cambia cuando Kafka sale de tu portátil
+
+El capítulo 19 dejó el plan y las tres ideas que no se pueden mezclar. Este es el capítulo de
+lo que se hizo: los artefactos de despliegue, en orden, y lo que cada uno resuelve. Todo vive en
+`deploy/`, y el runbook completo está en `deploy/README.md` (en inglés, porque es material de
+cara al repositorio).
+
+**Primero, la regla que gobierna todo:** lo que tiene estado **no se apaga**, y el broker no es
+tu problema. Los tres servicios de Kafka Streams llevan su state store en disco y su changelog en
+Kafka; apagarlos y encenderlos es reconstruir, no reanudar. Así que el reparto queda así:
+
+| Pieza | En local | Desplegado | Quién la arranca |
+|---|---|---|---|
+| Broker + Schema Registry | 3 contenedores KRaft en tu máquina | Gestionado (fuera de la ecuación), **creado a mano en la consola** | El proveedor |
+| Simulador, matching, auditoría, gateway | 7 procesos en tu devcontainer | Una VM pequeña, siempre encendida | `systemd` |
+| Los 3 de Streams | igual | **La misma VM**: el estado no se puede serverless | `systemd` |
+| `ingestion-normalizer` | un proceso más | **AWS Lambda** con *event source mapping* | AWS |
+
+### 1. El broker deja de ser tuyo (y eso se nota en la configuración)
+
+En local, `kafka-1:9092` es una dirección y ya está: la red `aggora-net` es de confianza. Un
+broker gestionado exige **SASL + TLS**, así que la misma aplicación necesita tres datos más
+(usuario, clave, mecanismo) y el `security.protocol`. Eso en el código no cambia nada —el cliente
+de Kafka ya sabe hacerlo— y en la configuración lo cambia todo: las credenciales **no pueden
+estar en el repositorio**.
+
+De ahí la decisión que más se repite en la Fase 10: **el broker se crea a mano, no con
+Terraform.** Terraform es perfecto para describir recursos que se pueden destruir y volver a
+crear; un clúster gestionado que factura por hora y guarda datos no es uno de ellos. La
+infraestructura describe **todo lo que rodea al broker** (la VM, la Lambda, los permisos, el
+bucket, las alarmas) y los secretos entran por **SSM Parameter Store** como `SecureString`, que
+es la forma de que el servidor los lea al arrancar sin que viajen en un fichero del repo.
+
+Antes de elegir proveedor hay que comprobar **tres** cosas, y ninguna es cosmética: que soporte
+**transacciones** (si no, se cae el exactly-once de la Fase 4), **topic admin** (si no, no puedes
+crear los topics ni cambiar particiones) y **Kafka Streams** (si no, tres de los siete servicios
+no existen). Los brokers que hablan HTTP en vez del protocolo de Kafka no valen, por muy
+"serverless" que se anuncien.
+
+### 2. `systemd` sustituye al script de arranque, y la sonda de salud hace el resto
+
+En local, `scripts/start-services.sh` arranca los servicios **en orden y esperando** a cada uno,
+porque un motor de Streams falla si su topic de origen todavía no existe. En una VM eso se
+resuelve con `Restart=always` y `RestartSec=15` en una unidad de systemd: el que arranque
+demasiado pronto falla, systemd lo reintenta y a la segunda el topic ya está. Es la misma idea
+con otra herramienta, y por eso hay **una sola unidad plantilla** (`aggora@.service`) en lugar de
+siete ficheros: los servicios son el mismo jar con otro nombre.
+
+Y aquí se junta con el capítulo 18: **un servicio de Streams que se queda en ERROR no se cae.**
+El proceso sigue vivo, el motor está muerto y sin sonda nadie se entera. Por eso lo que hace que
+el reinicio sirva de algo no es el `Restart=always`, sino que `systemd` pueda leer la sonda de
+salud y reiniciar de verdad lo que está en DOWN. Sin la sonda, el servicio parece vivo para
+siempre y no procesa nada.
+
+### 3. Lo sin estado se va a Lambda, y allí las reglas son otras
+
+Solo `ingestion-normalizer` puede ser serverless; el capítulo 19 explica por qué los otros no. La
+consecuencia práctica es que **no es la misma aplicación con otro envoltorio**: allí no hay bucle
+de consumo, Lambda te invoca con un lote ya leído, el valor llega **en base64** y **los offsets
+los confirma el servicio**, no tú.
+
+Eso obliga a reescribir la política de errores. En local, un mensaje que no se puede deserializar
+se manda al `.DLT` y se sigue. En Lambda no se puede "seguir" a medias: si la función lanza una
+excepción, el servicio **reintenta el lote entero** y un mensaje venenoso bloquea la partición.
+Así que el handler hace lo mismo que en local —validar y mandar al `.DLT` con el motivo en una
+cabecera, **sin lanzar**— y solo propaga la excepción cuando el fallo es de infraestructura (el
+broker no responde). Para ese caso, y no para el veneno, existe la *on-failure destination*: una
+cola SQS donde acaba el lote que ha fallado demasiadas veces. Es el mismo problema de la Fase 6
+con otras reglas, que es exactamente lo que el capítulo 19 avisaba.
+
+### 4. Lo que se ha verificado, y lo que no
+
+Esta es la parte que no se puede maquillar: **no se ha desplegado en AWS**, porque no hay cuenta
+ni credenciales, y desplegar de verdad cuesta dinero que nadie ha aprobado. Lo que sí está
+comprobado, con los comandos y su salida:
+
+- los tres árboles compilan y sus tests pasan (`mvn test` en `services/`, que agrega Spring,
+  Quarkus y Lambda);
+- el **handler de Lambda** tiene tests que no necesitan ni broker ni Docker: un lote válido, un
+  lote con un mensaje inválido, un `value` que no es Avro y un lote mezclado;
+- la infraestructura pasa `terraform fmt -check` y `terraform validate` (esto último es lo que
+  detecta un argumento que no existe en el proveedor, y es la comprobación que de verdad vale);
+- el `docker-compose` de la VM se valida con `docker compose config`.
+
+Lo que **no** se puede verificar sin cuenta: que la red y los permisos dejen hablar a la VM con
+el broker, que la Lambda reciba lotes del *event source mapping* y que las alarmas salten. Eso
+está escrito como pasos concretos en el runbook, para que quien lo despliegue tenga una lista que
+seguir y no una intuición.
+
+**Analogía:** es mudarse de casa. La nevera (el broker) pasa a ser del vecino y te da una
+llave (SASL): sigue estando encendida cuando tú no estás. La imprenta del sótano (los servicios
+con estado) se la lleva uno a la casa nueva y hay que volver a montar la plancha cada vez que se
+apaga. Y el repartidor (Lambda) solo pasa cuando hay paquetes, pero si un paquete viene roto te
+devuelve **todo el carro**, no solo el roto.
+
+### Y si algún día se despliega de verdad, esto es lo que va a doler primero
+
+1. **Las credenciales.** Un `Access denied` de SASL no dice qué falta; se depura mirando el log del
+   broker, no el de la aplicación.
+2. **Los topics tienen que existir con las mismas particiones.** Si el topic de origen tiene 3
+   particiones en el broker gestionado y 6 en local, el paralelismo cambia y el simulador se
+   reparte de otra forma.
+3. **La factura del broker corre en vacaciones.** Es la pieza que se cobra por hora esté el
+   pipeline procesando o no.
+4. **El reloj.** Los certificados y las credenciales caducan; el día que caducan, todos los
+   servicios se caen a la vez y el síntoma (timeout) no se parece a la causa (un certificado).

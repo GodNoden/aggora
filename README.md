@@ -31,6 +31,7 @@ were fixed.
 | Replicas, ISR and `min.insync.replicas` | 3-broker KRaft cluster with 3 replicas per partition |
 | Operations and observability | kafka-exporter + Prometheus + Grafana, provisioned from this repository; app metrics from actuator/micrometer and a health probe that goes DOWN when the engine is dead |
 | Fan-out: the same topic, one copy per consumer group | `gateway-ws` keeps its own group on three topics and pushes every record to every open browser |
+| Deploying it: what can be serverless and what cannot | `deploy/README.md`: managed broker, one always-on VM for the stateful services, `ingestion-normalizer` on Lambda with an event source mapping |
 
 ---
 
@@ -171,6 +172,7 @@ variables.
 | 8 | Port of the services to Quarkus + GraalVM native image | ✅ (all 7 services ported and measured; native image pending, recipe in `scripts/build-native.sh`) |
 | 9 | [Spring vs Quarkus comparison report](SPRING_VS_QUARKUS.md), with numbers | ✅ |
 | 9 | `gateway-ws` in both implementations: the live WebSocket feed | ✅ |
+| 10 | Deployment: managed broker, one always-on VM, and the stateless service on Lambda | ✅ artifacts (validated, not deployed: no AWS account in this repo) |
 
 **Verified live, not in theory:** 41 unit tests green, 3 brokers with a KRaft quorum and 3
 replicas per partition (with two brokers down, writes stop with `NOT_ENOUGH_REPLICAS`
@@ -187,7 +189,7 @@ rebuild of the environment.
 README.md                  project front page
 SPEC.md                    the original spec (immutable)
 CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
-docs/kafka-101.md          the Kafka concepts in plain language (20 chapters)
+docs/kafka-101.md          the Kafka concepts in plain language (21 chapters)
 docs/decisions.md          decision log and the deliberate deviations from the spec
 docs/schema-evolution-lab.md  the schema evolution lab manual
 infra/                     docker-compose, Prometheus, Grafana dashboard
@@ -205,6 +207,8 @@ services/                  Maven aggregator: the platform in both implementation
     gateway-ws/            live WebSocket feed for browsers (the fan-out)
   quarkus/                 the same eight services, ported in phase 8
     .../                   same names as above, plus the native-image recipe
+  lambda/                  the stateless service as a Lambda (phase 10)
+deploy/                    runbook, Terraform, systemd units and the VM compose
 ```
 
 The eight services exist **twice** (`services/spring/*` and `services/quarkus/*`) on

@@ -5,9 +5,14 @@
 # Postgres con Testcontainers y tardan minutos. Son dos jobs y no uno para que el de unitarios de la
 # señal rápido aunque el de integración tarde o falle.
 #
-# Ojo con una cosa de este proyecto: aquí conviven DOS implementaciones (Spring y Quarkus) y las dos
-# se compilan y se prueban. El job `unit` construye el árbol entero (services/pom.xml es el
-# agregador de las dos) y el `integration` solo la parte de Spring, que es donde están los *IT.
+# Ojo con una cosa de este proyecto: aquí conviven TRES implementaciones (Spring, Quarkus y la de
+# Lambda de la fase 10) y las tres se compilan y se prueban. El job `unit` construye el árbol
+# entero (services/pom.xml es el agregador de las tres) y el `integration` solo la parte de Spring,
+# que es donde están los *IT.
+#
+# El cuarto job (`infra`) no compila Java: valida la infraestructura de despliegue. Es barato y
+# detecta lo que de verdad se rompe en un `main.tf` escrito a mano: un argumento que no existe en
+# el proveedor de AWS. Un fichero de Terraform sin validar es documentación, no infraestructura.
 name: CI
 
 on:
@@ -33,6 +38,52 @@ jobs:
       - name: Compilar y probar las dos implementaciones
         working-directory: services
         run: mvn -B -ntp test
+
+  artifacts:
+    name: Paquete de despliegue (Lambda)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # `test` no construye el jar gordo (eso es cosa del shade, en `package`), y el jar gordo ES
+      # el paquete de despliegue de Lambda. Sin este job, un shade mal configurado no se detecta
+      # hasta el día del despliegue.
+      - name: Construir el paquete de la Lambda
+        working-directory: services
+        run: mvn -B -ntp -pl lambda/ingestion-normalizer-lambda -am package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ingestion-normalizer-lambda
+          path: services/lambda/ingestion-normalizer-lambda/target/*-lambda.jar
+          if-no-files-found: error
+
+  infra:
+    name: Infraestructura (Terraform)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.8'
+
+      - name: Formato
+        run: terraform -chdir=deploy/terraform fmt -check -recursive
+
+      # `init -backend=false` baja el proveedor de AWS pero no toca ningún estado remoto: en CI no
+      # hay credenciales y no hacen falta, porque `validate` no habla con AWS, solo con el esquema
+      # del proveedor.
+      - name: Validar
+        run: |
+          terraform -chdir=deploy/terraform init -backend=false -input=false
+          terraform -chdir=deploy/terraform validate
 
   integration:
     name: Integración (Testcontainers)
