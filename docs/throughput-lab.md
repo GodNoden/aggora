@@ -143,10 +143,46 @@ pasaron **sin perder un mensaje**. Verificado: la sonda del 8085 responde 200 y
   pruebas: lo que se afirma es la diferencia grande (2,8x en el normalizer) y el empate en
   throughput, no diferencias del 10%.
 
-## 7. Qué haría falta para cerrar la pregunta
+## 7. Segunda ronda: ráfaga larga (120 s), y el matiz que faltaba
 
-1. **Ráfagas largas** (`bash scripts/throughput-test.sh 300 1000 1200 1500`) para encontrar la tasa
-   a la que el lag deja de estabilizarse: esa es la capacidad real.
+Las ráfagas de 20 s miden absorción, no tasa sostenible. Con una de **120 s a 1.000 msg/s** (119.999
+mensajes) aparece el matiz que decide cuál de los dos "gana" según lo que te importe:
+
+| Medida | Spring | Quarkus |
+|---|---|---|
+| Canónico (procesado) | 119.999 | 119.999 |
+| Analítica | 599.995 | 599.995 |
+| **Pico de lag del normalizer** | **55.746** (46% de la entrada) | **24.939** (21%) |
+| CPU del normalizer | 24,8 s (0,21 ms/msg) | 88,5 s (0,74 ms/msg) |
+| CPU del motor de Streams | 38,0 s | 39,9 s |
+| CPU del stack entero | 0,79 ms/msg | 1,56 ms/msg |
+
+Traducido: **Spring gasta 3,6 veces menos CPU en el normalizer, pero se queda atrás el doble**.
+Quarkus procesa más mensajes en caliente (por eso acumula menos atraso) a base de gastar más CPU
+—hilos de trabajo y una tarea por mensaje con su propagación de contexto, frente al bucle por lotes
+del listener de Spring—. Y los dos acaban igual: procesan todo, sin perder un mensaje y sin DLT.
+Los dos motores de Streams vuelven a costar lo mismo (38,0 vs 39,9 s), que sigue siendo el control de
+que la medición no se ha ido de las manos.
+
+**La configuración del consumidor es la misma en los dos** (verificado, porque si no la comparación
+no valdría): `max.poll.records=200`, `max.poll.interval.ms=300000`, el mismo deserializador de
+Confluent y el mismo commit manual. Así que la diferencia de coste **no es un desajuste de
+configuración**: es el modelo de despacho.
+
+**Tasa sostenible, ahora con mejor base.** Con 120 s a 1.000 msg/s ninguno de los dos va sobrado
+(Spring procesó ~535/s en caliente y Quarkus ~790/s), así que la tasa donde el atraso deja de
+crecer está **por debajo de 1.000 msg/s**: la estimación con ráfagas de 20 s (~900/s) era optimista
+y esta la baja al entorno de **600-800 msg/s** por stack en este portátil, con los dos stacks, los
+tres brokers y Grafana compartiendo CPU. Para clavarla: `bash scripts/throughput-test.sh 120 600 800 1000`
+(unos 15 minutos) y ver a partir de qué tasa el pico de lag deja de crecer.
+
+## 8. Qué haría falta para cerrar la pregunta
+
+1. ~~Ráfagas largas~~ (hecho a 1.000 msg/s, ver la sección 7): falta barrer varias tasas
+   (`bash scripts/throughput-test.sh 120 600 800 1000`) para encontrar el punto exacto. También se
+   probó igualar `max.poll.records` (ya eran iguales) y el siguiente ajuste razonable es **subirlo
+   en los dos** (p. ej. a 1.000): si la brecha de CPU se estrecha, parte del coste de Quarkus es por
+   mensaje y se amortiza con lotes más grandes.
 2. **Ajustar el normalizer de Quarkus** (`max.poll.records`, hilos de trabajo, `commit-strategy`)
    antes de atribuir los 2,8x al framework: puede ser configuración, no diseño.
 3. **Repetir con la máquina en reposo** (solo un stack cada vez) para quitar la contención entre

@@ -1150,3 +1150,12 @@ servicio → `join` cruzaba filas y salían CPU negativas), y usar la misma vari
 el acumulador en `awk` hacía que solo se sumara el primer servicio. Un test de estrés que miente en
 la medición es peor que no tenerlo.
 
+**Segunda ronda (ráfaga de 120 s a 1.000 msg/s).** El matiz que faltaba: Spring gasta **3,6 veces
+menos CPU en el normalizer** (0,21 vs 0,74 ms por mensaje) pero **acumula el doble de atraso**
+(55.746 vs 24.939 mensajes, el 46% frente al 21% de la entrada). Quarkus va más al día a base de
+gastar CPU; Spring es más barato y se queda más atrás. Los dos procesan todo y sin DLT, y los dos
+motores de Streams siguen costando lo mismo (38,0 vs 39,9 s). Se comprobó antes que la configuración
+del consumidor es idéntica en los dos (`max.poll.records=200`, mismo deserializador, mismo commit
+manual), así que la diferencia es el **modelo de despacho**, no un desajuste. Y la tasa sostenible
+baja de los ~900/s que sugerían las ráfagas de 20 s a **600-800/s por stack** en este portátil.
+
