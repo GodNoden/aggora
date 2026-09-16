@@ -792,3 +792,28 @@ para TLS opcional. En la JVM no importa mientras no se use TLS, pero **GraalVM a
 bytecode alcanzable** y no puede resolver un tipo que no está en el classpath: lo que en la JVM es
 una dependencia opcional, para el análisis estático es obligatoria. Arreglo: poner BouncyCastle
 (`bcprov-jdk18on` y `bctls-jdk18on`) en el classpath de los módulos de Quarkus.
+
+### El nativo: la familia de errores que queda (y cómo se ataca)
+
+Con BouncyCastle en el classpath, el análisis de GraalVM avanza y aparece **el siguiente error de la
+misma familia**, ya no en el compilador sino al arrancar la imagen:
+
+```
+Caused by: java.lang.NoClassDefFoundError: org/brotli/dec/BrotliInputStream
+Caused by: java.lang.ClassNotFoundException: org.brotli.dec.BrotliInputStream
+```
+
+Es el mismo patrón que BouncyCastle, y conviene entenderlo porque se repite: **una dependencia
+OPCIONAL en la JVM que el análisis estático necesita**. El cliente de Kafka y Netty referencian
+compresiones (Brotli) que en la JVM solo se cargan si las usas; GraalVM recorre todo el bytecode
+alcanzable y exige que la clase exista.
+
+El arreglo, sin verificar todavía (no lo he metido al repo a ciegas): añadir al classpath el
+artefacto que aporta `org.brotli.dec.BrotliInputStream` — `org.brotli:dec` — y volver a compilar. Y
+contar con que aparezca alguno más de la misma familia (compresiones y TLS son los sospechosos
+habituales), que es exactamente lo que el informe de la Fase 9 pide documentar: **no son problemas
+del código, son dependencias opcionales que el análisis estático convierte en obligatorias**.
+
+Estado: el nativo queda a **un error de distancia**, con la receta al día en `scripts/build-native.sh`
+y los cinco tropiezos de esta sesión escritos (la imagen del builder sin Maven, `-Dnative` sin
+perfil, el CLI de docker, la ruta del proyecto y las dos dependencias opcionales).
