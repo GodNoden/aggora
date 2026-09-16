@@ -157,3 +157,47 @@ arranque. La cambia para **serverless y para plataformas que cobran por memoria*
 arranque es lo que hace viable escalar a cero, y 114 MB en reposo es la mitad de factura que 332 MB.
 Si ese es tu problema, el nativo lo resuelve; si no, es un fin de semana de gotchas que no vas a
 amortizar.
+
+## 6. El gateway en vivo: el mismo fan-out, dos formas de empujar
+
+El último servicio (`gateway-ws`) es el que mejor separa los dos modelos, porque aquí **ambos
+tienen que ser asíncronos**: repartir a N navegadores no puede bloquear al hilo que lee de Kafka.
+
+**Spring (Jakarta WebSocket, imperativo).** El endpoint es un `@ServerEndpoint("/ws")` con un
+`Set<Session>`, y el envío hay que hacerlo **explícitamente** asíncrono:
+
+```java
+sesion.getAsyncRemote().sendText(json, resultado -> {
+    if (!resultado.isOK()) sesiones.remove(sesion);   // la sesión murió
+});
+```
+
+Nada de esto es difícil, pero es decisión tuya: si usas `getBasicRemote()`, el hilo de Kafka se
+queda esperando al cliente más lento y el pipeline entero se frena. El compilador no te avisa.
+
+**Quarkus (WebSockets Next, reactivo).** El endpoint es un bean de CDI (`@WebSocket(path = "/ws")`)
+y `sendText` **ya devuelve `Uni<Void>`**: la asincronía no es una decisión, es el tipo.
+
+```java
+conexion.sendText(json).subscribe().with(ignorado -> {}, fallo -> conexiones.remove(conexion));
+```
+
+**Las dos diferencias que sí importan:**
+
+| | Spring | Quarkus |
+|---|---|---|
+| La asincronía del envío | la eliges tú (`getAsyncRemote`) | viene en la firma (`Uni<Void>`) |
+| El JSON | Jackson 3, excepción *unchecked* | Jackson 2 del BOM, excepción *checked*: `try/catch` obligatorio |
+| El cliente muerto | se detecta en el callback del envío | se detecta en el `subscribe().with(...)` del `Uni` |
+| Aviso de sesión cerrada | `@OnClose` | `@OnClose` |
+
+El `try/catch` del JSON es un buen recordatorio de que "Quarkus usa Jackson" no significa "el mismo
+Jackson": el BOM de Quarkus 3.39 fija Jackson 2, y Spring Boot 4 ya va con Jackson 3. Es una línea
+de diferencia, pero es exactamente el tipo de detalle que se descubre al compilar y no en un
+artículo.
+
+**Lo que no cambió nada:** el fan-out en sí. Los dos consumen los mismos tres topics con su propio
+`group.id`, los dos traducen Avro a un JSON pequeño y los dos comparten **la misma página**
+(`index.html` copiado) y **la misma comprobación** (`scripts/GatewayLiveCheck.java`). Medido con los
+dos corriendo a la vez: 180 ticks, 10 posiciones y 30/11 alertas en 12 s cada uno. La conclusión de
+la sección 4 sigue en pie: la diferencia está en el día a día del código, no en lo que se entrega.

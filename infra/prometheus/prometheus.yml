@@ -4,8 +4,10 @@
 #
 #   1. kafka-exporter, que es quien sabe de lag, offsets y throughput (Prometheus no habla
 #      el protocolo de Kafka).
-#   2. Las aplicaciones, en /actuator/prometheus (Spring, Fase 8) y en /q/metrics (Quarkus,
-#      cuando llegue). Es lo que permite poner en el mismo panel las dos implementaciones.
+#   2. Las aplicaciones, en /actuator/prometheus (Spring) y en /q/metrics (Quarkus). Es lo que
+#      permite poner en el mismo panel las dos implementaciones. Ojo con el detalle: en el mismo
+#      trabajo de scrape no se pueden mezclar las dos rutas, asi que las de Quarkus (8185 y 8189)
+#      van en su propio trabajo mas abajo.
 #
 # Los servicios corren DENTRO del devcontainer, no como contenedores de aggora-net, asi que
 # se llega a ellos por host.docker.internal (Docker Desktop lo resuelve solo en Windows/WSL2;
@@ -37,6 +39,23 @@ scrape_configs:
       # servidor porque un WebSocket necesita uno). A los otros habria que anadirles
       # spring-boot-starter-web solo para mirarles la memoria, y eso cambiaria justo lo que
       # se quiere medir.
+      #
+      # CUIDADO con host.docker.internal: solo funciona para los puertos que el host de WSL2
+      # tiene reenviados (hoy 8080, 8085 y 8189, que VS Code reenvia solos). Un puerto que no
+      # este en esa lista aparece como "connection refused" aqui aunque el servicio este vivo:
+      # le pasa al 8089, que se ve en Grafana en cuanto se reenvia el puerto (anadir 8089 a
+      # forwardPorts en .devcontainer/devcontainer.json, o abrirlo desde VS Code). Se deja como
+      # target a proposito: el dia que este reenviado, aparece sin tocar nada.
       - targets: ["host.docker.internal:8080"]
       - targets: ["host.docker.internal:8085"]
       - targets: ["host.docker.internal:8089"]
+
+  # Las aplicaciones de Quarkus exponen las metricas en OTRA ruta (/q/metrics), y en un trabajo
+  # de scrape no se pueden mezclar rutas: cada uno tiene la suya. Las etiquetas stack/service
+  # las sigue poniendo la aplicacion, no el scrape.
+  - job_name: aggora-apps-quarkus
+    metrics_path: /q/metrics
+    static_configs:
+      # 8185: la analitica de Quarkus. 8189: su gateway en vivo (8289 si corre el stack paralelo).
+      - targets: ["host.docker.internal:8185"]
+      - targets: ["host.docker.internal:8189"]

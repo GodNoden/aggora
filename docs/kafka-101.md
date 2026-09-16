@@ -925,3 +925,70 @@ mismos topics de salida. Si el port de Quarkus usa el mismo `group.id` que el de
 dos se reparten las particiones y **cada mensaje lo procesa uno de los dos** (bien para
 sustituir uno por otro, mal para medir). Para comparar: `group.id` propio y topics de salida
 propios (`market.analytics.quarkus`), o uno encendido cada vez.
+
+## 20. El fan-out: cuando quieres una copia, no un reparto
+
+Todos los grupos de consumo del proyecto hasta aqui eran de **trabajo**: `ingestion-normalizer`
+tiene dos instancias y entre las dos se reparten las seis particiones. Si arrancas una tercera,
+Kafka le quita particiones a las otras: el grupo siempre procesa **cada mensaje una vez**, entre
+todos. Es lo que quieres para procesar, y es exactamente lo que **no** quieres para una pantalla.
+
+La pantalla no es un trabajador: quiere **todos** los mensajes, y le da igual que los procese otro.
+Para eso esta el otro uso de los grupos de consumo, el **fan-out**:
+
+```
+                       market.ticks.canonical
+                                │
+        ┌───────────────┬───────┴───────┬────────────────┐
+        ▼               ▼               ▼                ▼
+ analytics-streams  audit-log    gateway-ws     gateway-ws-quarkus
+ (grupo: analytics)  (grupo:     (grupo:        (grupo: gateway-ws-quarkus)
+                      audit-log)  gateway-ws)
+```
+
+La regla es la misma que ya sabes, solo que mirada al reves: **cada grupo recibe su propia copia
+de cada mensaje**. Si el grupo es distinto, no hay reparto ni rebalanceo que valga: los dos leen
+todo. Por eso `gateway-ws` usa un `group.id` propio y no toca el de `analytics-streams`: si
+compartieran grupo, el gateway se quedaria con particiones que la analitica necesita y las dos
+cosas irian a medias.
+
+**Lo que se paga por esa copia:** cada grupo es un consumidor mas para Kafka. Lee de disco, ocupa
+memoria en el broker y aparece en el lag. Un fan-out no es gratis, es barato: por eso se usa para
+una pantalla y no para repartir trabajo.
+
+### Como se lleva eso a un navegador
+
+Un navegador no habla Kafka ni puede hablarle. Lo que habla es **WebSocket**: una conexion TCP que
+empieza como una peticion HTTP normal (con la cabecera `Upgrade: websocket`) y, si el servidor
+contesta `101 Switching Protocols`, deja de ser HTTP y pasa a ser un canal de dos direcciones que
+sigue abierto. Eso es lo que necesita un feed: el servidor empuja, el navegador no pregunta.
+
+El servicio que hace de puente es `gateway-ws`, y no tiene nada de especial:
+
+1. Consume los tres topics de eventos (`market.ticks.canonical`, `portfolio.updates`,
+   `alerts.raised`) con **su** grupo de consumo.
+2. Traduce cada registro Avro a un JSON pequeno (`{"kind":"tick","symbol":"EUR/USD",...}`): al
+   navegador le interesan el simbolo y el precio, no el offset ni el esquema.
+3. Lo manda a **todas** las sesiones abiertas. Si un envio falla, esa sesion se descarta; no hay
+   que adivinar quien sigue ahi.
+
+Y se puede ver funcionando sin escribir una linea de JavaScript:
+
+```bash
+java scripts/GatewayLiveCheck.java localhost 8089 12
+```
+
+Habla WebSocket con la libreria del propio JDK (`java.net.http.WebSocket`) y cuenta lo que llega.
+Medido: **180 ticks, 10 posiciones y 30 alertas en 12 segundos**, con las dos implementaciones
+(Spring en el 8089, Quarkus en el 8189) leyendo los mismos topics a la vez.
+
+### Las tres decisiones que se tomaron aqui
+
+- **El commit es automatico, y es lo correcto.** En los servicios de trabajo el commit es manual
+  porque un mensaje perdido es un dato perdido. Aqui si se pierde un tick, el siguiente trae el
+  precio nuevo y la pantalla se corrige sola. Confirmar uno a uno solo serviria para ir mas lento.
+- **El envio no puede bloquear.** Un cliente en un movil con mala cobertura no puede frenar a los
+  demas ni parar el consumo de Kafka. En Spring se usa el envio asincrono a mano; en Quarkus,
+  WebSockets Next ya devuelve un `Uni` y el problema no existe.
+- **No hay estado.** El gateway no guarda nada: si se cae, se levanta y la pantalla se rellena en
+  cuanto llegan los siguientes eventos. Es un espejo, no una base de datos.

@@ -933,19 +933,16 @@ con la receta escrita; el montaje ya está hecho.
 | Entregable | Estado |
 |---|---|
 | `docker-compose.yml` con la infraestructura | ✅ `infra/docker-compose.yml` (3 brokers + SR + Postgres + Prometheus + Grafana + exporter) |
-| Implementacion Spring de todos los servicios | ⚠️ **7 de los ~10** que sugiere el spec: falta **`gateway-ws`** (fan-out por WebSocket a un frontend) |
-| Implementacion Quarkus de todos los servicios | ⚠️ los mismos 7 |
+| Implementacion Spring de todos los servicios | ✅ los 8 (los 7 de las fases + `gateway-ws`) |
+| Implementacion Quarkus de todos los servicios | ✅ los mismos 8, incluido el binario de `gateway-ws` |
 | Al menos 2 builds nativos con benchmarks | ✅ `ingestion-normalizer` y `market-data-simulator`: **0,022 s** de arranque y **114-124 MB** de RSS |
 | Panel de Grafana (JSON exportado) | ✅ `infra/grafana/dashboards/aggora-kafka.json`, provisionado desde el repo |
 | `SPRING_VS_QUARKUS.md` | ✅ con la seccion del nativo |
 | `README.md` con como arrancarlo y el mapa concepto → servicio | ✅ (la tabla "What is demonstrated here?" es eso) |
 
-**El unico hueco real es `gateway-ws`**: un consumidor de fan-out que empuje los datos en vivo a un
-frontend por WebSocket. No estaba en ninguna de las fases que se acordaron (la Fase 0-9 del spec
-nombra los otros siete), pero la checklist lo cuenta, asi que queda dicho aqui en vez de
-descubrirlo al final. Es un servicio pequeno y bien delimitado: consume `market.ticks.canonical` y
-`portfolio.updates`, y los reparte por WebSocket a los clientes conectados (practicando el
-`Consumer (fan-out)` que pide el spec).
+**`gateway-ws` ya no es un hueco**: se construyo despues de esta revision y en las dos
+implementaciones (ver la seccion siguiente). Era el unico punto de la checklist que seguia en
+ambar, y se dejo escrito aqui antes de hacerlo en vez de descubrirlo al final.
 
 ## El throughput: la comparacion que si vale
 
@@ -962,3 +959,50 @@ sea los dos al corriente) y **la misma entrada**, la medida es:
 throughput. Para separarlos haría falta un **test de estrés** (miles de msg/s con
 `kafka-producer-perf-test` contra `market.ticks.raw`, o varios simuladores a la vez) hasta que el
 coste por mensaje de cada framework empiece a notarse. Queda anotado con la receta.
+
+## El gateway en vivo: el ultimo servicio, y el unico que se ve
+
+`gateway-ws` no procesa nada: **reparte**. Consume `market.ticks.canonical`, `portfolio.updates` y
+`alerts.raised` y manda cada evento a todos los navegadores conectados por WebSocket. Es el
+`Consumer (fan-out)` que pide la checklist del spec, y existia un motivo practico para hacerlo: no
+habia forma de *ver* la plataforma funcionando sin mirar topics a mano.
+
+**La decision que define el servicio es el `group.id`.** Usa uno propio (`gateway-ws`, y
+`gateway-ws-quarkus` en la version de Quarkus) en vez de reutilizar el de `analytics-streams` o el
+de `audit-log`. Con grupo propio, Kafka le da **su propia copia de cada registro**; si compartiera
+grupo, le quitaria particiones a la analitica y las dos cosas irian a medias. Es la misma regla de
+siempre (un grupo reparte, un grupo distinto copia) usada al reves que en los servicios de trabajo.
+
+| Pieza | Spring (`services/spring/gateway-ws`) | Quarkus (`services/quarkus/gateway-ws`) |
+|---|---|---|
+| Consumo | `@KafkaListener` x3 + `spring-boot-starter-kafka` | `@Incoming` x3 + `quarkus-messaging-kafka` |
+| WebSocket | Jakarta WebSocket estandar: `@ServerEndpoint` + `sendMessage` asincrono a mano | WebSockets Next: `@WebSocket` + `WebSocketConnection.sendText`, que ya devuelve `Uni` |
+| JSON | Jackson 3 (`tools.jackson`, unchecked) | Jackson 2 del BOM (checked: hay que capturar `JsonProcessingException`) |
+| Puerto / ruta | 8089, `/ws` | 8189, `/ws` |
+| Pagina | `static/index.html` | `META-INF/resources/index.html` (el **mismo** fichero, copiado) |
+| Metricas | `/actuator/prometheus` (scrapeado) | `/q/metrics` (scrapeado) |
+
+Otras decisiones, y por que:
+
+- **El commit es automatico** (en Spring, el de por defecto; en Quarkus,
+  `failure-strategy=ignore` sin tocar offsets). En un fan-out no hay dato que perder: si un evento
+  se cae, el siguiente trae el precio nuevo. El commit manual de los servicios de trabajo aqui solo
+  haria ir mas lento el reparto.
+- **El envio es asincrono y con `try`.** Una sesion muerta o lenta no puede frenar a las demas ni,
+  menos aun, parar el hilo que consume de Kafka. En Spring se usa `getAsyncRemote().sendText(...)`
+  con callback y se descarta la sesion cuando el callback falla (no se adivina antes).
+- **El servicio no guarda estado.** No hay base de datos ni state store: es un espejo. Al
+  arrancar, la pantalla se rellena con los siguientes eventos y ya esta.
+- **Los dos gateways corren a la vez a proposito**, con grupos distintos sobre los mismos topics.
+  Es la demostracion mas barata de que un grupo de consumo no es un canal exclusivo: las dos
+  paginas (8089 y 8189) muestran las mismas posiciones y alertas al mismo tiempo.
+
+**Comprobacion que deja el servicio** (`scripts/GatewayLiveCheck.java`): habla WebSocket con la
+libreria del JDK (`java.net.http.WebSocket`), sin anadir ninguna dependencia, y falla si no llega
+ningun tick. Medido con los dos stacks en marcha, 12 s por gateway:
+
+| Gateway | handshake | ticks | posiciones | alertas |
+|---|---|---|---|---|
+| Spring (8089) | `101 Switching Protocols` | 180 | 10 | 30 |
+| Quarkus (8189) | `101 Switching Protocols` | 180 | 10 | 11 |
+

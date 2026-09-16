@@ -704,6 +704,29 @@ cd /workspaces/aggora/services
 mvn -q -pl spring/ingestion-normalizer test -Dtest=SchemaEvolutionTest
 ```
 
+- ✅ **Fase 9 (cierre)** — `gateway-ws`: el **fan-out** a un frontend, en las dos implementaciones.
+  Consume `market.ticks.canonical`, `portfolio.updates` y `alerts.raised` con **grupo de consumo
+  propio** (por eso recibe su copia de cada registro en vez de quitarle particiones a la analitica)
+  y reparte cada evento por WebSocket a todos los navegadores conectados.
+  - **Spring** (`services/spring/gateway-ws`, puerto 8089): Jakarta WebSocket (`@ServerEndpoint`) +
+    `getAsyncRemote()` para no frenar el consumo, y `static/index.html` como pagina de demo.
+  - **Quarkus** (`services/quarkus/gateway-ws`, puerto 8189): WebSockets Next (`@WebSocket`), donde
+    `sendText` ya devuelve `Uni<Void>`, y el **mismo** `index.html` copiado a `META-INF/resources`.
+  - Se puede arrancar el de Quarkus a mano mientras el stack de Spring corre, para ver las dos
+    paginas a la vez (es la demostracion de que un grupo de consumo reparte y otro copia):
+    ```bash
+    cd /workspaces/aggora/services/quarkus/gateway-ws
+    nohup java -jar target/quarkus-app/quarkus-run.jar > /tmp/gateway-ws-quarkus.log 2>&1 &
+    ```
+  - Verificacion (dentro del devcontainer; los dos comandos valen para el 8089 y el 8189):
+    ```bash
+    curl -s -o /dev/null -w "%{http_code}\n" localhost:8089/          # 200: la pagina
+    java scripts/GatewayLiveCheck.java localhost 8089 12               # 101 + eventos por tipo
+    ```
+    El chequeo habla WebSocket con la libreria del JDK, asi que no anade ninguna dependencia, y
+    falla con codigo 1 si no llega ningun tick. Medido: 180 ticks, 10 posiciones y 30 alertas
+    (Spring) / 11 (Quarkus) en 12 s con los dos stacks en marcha.
+
 ## Decisiones tomadas (link a docs/decisions.md para el detalle)
 - Kafka en modo KRaft (sin Zookeeper) — más simple, es lo moderno.
 - Imagen `apache/kafka` y no `confluentinc/cp-kafka` — Apache puro,
@@ -720,7 +743,9 @@ mvn -q -pl spring/ingestion-normalizer test -Dtest=SchemaEvolutionTest
 ## Cosas que NO hacer
 - No meter todo el proyecto de golpe. Fase por fase.
 - No cambiar `docker-compose.yml` sin explicar por qué en la respuesta.
-- No usar `host.docker.internal` (no es portable fuera de Docker Desktop).
+- No usar `host.docker.internal` (no es portable fuera de Docker Desktop) salvo para el scrape de
+  Prometheus, que es el unico caso donde no hay alternativa (esta documentado en `decisions.md`).
+- No compartir `group.id` entre un servicio de trabajo y el gateway: un grupo reparte, no copia.
 - No cambiar versiones de imágenes "porque son más nuevas" sin avisar.
 - No asumir que el usuario conoce Kafka Streams, Schema Registry,
   transacciones, etc. Explicar antes de usar.

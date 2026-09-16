@@ -30,6 +30,7 @@ were fixed.
 | Transactional outbox | Postgres and the compacted `audit.events` topic |
 | Replicas, ISR and `min.insync.replicas` | 3-broker KRaft cluster with 3 replicas per partition |
 | Operations and observability | kafka-exporter + Prometheus + Grafana, provisioned from this repository; app metrics from actuator/micrometer and a health probe that goes DOWN when the engine is dead |
+| Fan-out: the same topic, one copy per consumer group | `gateway-ws` keeps its own group on three topics and pushes every record to every open browser |
 
 ---
 
@@ -81,10 +82,16 @@ were fixed.
         ▼                 ▼                 ▼
  portfolio.updates   alerts.raised     audit.events
                                       (compacted)
+                    │            │
+                    └────────────┴──► gateway-ws · fan-out · ws://localhost:8089/ws
+                                      (its own consumer group: it gets its own
+                                       copy of every record instead of stealing
+                                       partitions from the services above)
 ```
 
-Seven Spring Boot services, two compacted topics, a three-broker cluster and an
-infrastructure that comes up with a single command.
+Eight Spring Boot services (the same eight exist again in Quarkus), two compacted
+topics, a three-broker cluster and an infrastructure that comes up with a single
+command.
 
 ---
 
@@ -128,8 +135,16 @@ bash scripts/stop-services.sh      # stop them all
 # 3) Quick check
 curl -s localhost:8081/subjects                              # the registered contracts
 curl -s 'localhost:8085/analytics?symbol=EUR/USD&minutes=3'   # query the state store
+java scripts/GatewayLiveCheck.java localhost 8089 12          # live feed, end to end
 open http://localhost:3000/d/aggora-kafka                     # the Kafka dashboard in Grafana
+open http://localhost:8089/                                   # the live feed demo page
+open http://localhost:8189/                                   # the same page, Quarkus version
 ```
+
+`gateway-ws` is the only service that exists **twice at once on purpose**: the Spring
+one (port `8089`) and the Quarkus one (port `8189`) read the same three topics with
+different consumer groups, so both pages show the same positions and alerts side by
+side.
 
 The API keys are optional: without them the simulator still runs, just with synthetic
 prices. They are **never written to the repository**; they are read from environment
@@ -155,6 +170,7 @@ variables.
 | 7 | Schema evolution lab: what breaks, how it is caught and how it is fixed | ✅ |
 | 8 | Port of the services to Quarkus + GraalVM native image | ✅ (all 7 services ported and measured; native image pending, recipe in `scripts/build-native.sh`) |
 | 9 | [Spring vs Quarkus comparison report](SPRING_VS_QUARKUS.md), with numbers | ✅ |
+| 9 | `gateway-ws` in both implementations: the live WebSocket feed | ✅ |
 
 **Verified live, not in theory:** 41 unit tests green, 3 brokers with a KRaft quorum and 3
 replicas per partition (with two brokers down, writes stop with `NOT_ENOUGH_REPLICAS`
@@ -171,7 +187,7 @@ rebuild of the environment.
 README.md                  project front page
 SPEC.md                    the original spec (immutable)
 CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
-docs/kafka-101.md          the Kafka concepts in plain language (18 chapters)
+docs/kafka-101.md          the Kafka concepts in plain language (20 chapters)
 docs/decisions.md          decision log and the deliberate deviations from the spec
 docs/schema-evolution-lab.md  the schema evolution lab manual
 infra/                     docker-compose, Prometheus, Grafana dashboard
