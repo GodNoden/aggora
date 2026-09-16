@@ -817,3 +817,28 @@ del código, son dependencias opcionales que el análisis estático convierte en
 Estado: el nativo queda a **un error de distancia**, con la receta al día en `scripts/build-native.sh`
 y los cinco tropiezos de esta sesión escritos (la imagen del builder sin Maven, `-Dnative` sin
 perfil, el CLI de docker, la ruta del proyecto y las dos dependencias opcionales).
+
+### Testcontainers en el devcontainer: el diagnostico exacto
+
+La lista de estrategias del informe de failsafe dice exactamente que pasa, y no es cosa del
+proyecto:
+
+```
+EnvironmentAndSystemPropertyClientProviderStrategy: failed with BadRequestException (Status 400: {...})
+UnixSocketClientProviderStrategy:                    failed with BadRequestException (Status 400: {...})
+DockerDesktopClientProviderStrategy:                 failed with NullPointerException (getSocketPath() is null)
+```
+
+El socket **conecta** (hay respuesta HTTP), pero devuelve **400** con un cuerpo vacío que lleva la
+etiqueta `"Labels":["com.docker.desktop.address=unix:///var/run/docker-cli.sock"]`. Es decir: dentro
+del devcontainer, `/var/run/docker.sock` (que es un enlace a `/var/run/docker-host.sock`) apunta al
+socket **del CLI de Docker Desktop**, no al del motor. El CLI funciona por ahi; el cliente Java de
+Testcontainers, no. Y no lo arreglan `DOCKER_HOST`, `TESTCONTAINERS_HOST_OVERRIDE` ni fijar
+`api.version` en `~/.testcontainers.properties` (probado, sigue el 400).
+
+Conclusión honesta: **es una particularidad de Docker Desktop en Windows + WSL, no del proyecto ni
+de los tests**. Los tests estan bien escritos y **corren en el CI**, que es un Docker nativo sin ese
+proxy de por medio. Perseguirlo en local es cambiar a donde apunta el enlace dentro del contenedor
+(hay que encontrar el socket del motor entre los que ofrece WSL) y no aporta nada al aprendizaje de
+Kafka: el objetivo de estos tests -que el cableado funcione contra un broker y una base de datos de
+verdad- ya queda cubierto por el pipeline.
