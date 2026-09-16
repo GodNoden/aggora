@@ -41,11 +41,12 @@ scrape_configs:
       # se quiere medir.
       #
       # CUIDADO con host.docker.internal: solo funciona para los puertos que el host de WSL2
-      # tiene reenviados (hoy 8080, 8085 y 8189, que VS Code reenvia solos). Un puerto que no
-      # este en esa lista aparece como "connection refused" aqui aunque el servicio este vivo:
-      # le pasa al 8089, que se ve en Grafana en cuanto se reenvia el puerto (anadir 8089 a
-      # forwardPorts en .devcontainer/devcontainer.json, o abrirlo desde VS Code). Se deja como
-      # target a proposito: el dia que este reenviado, aparece sin tocar nada.
+      # tiene reenviados. Un puerto que no este en esa lista aparece aqui como "connection
+      # refused" aunque el servicio este perfectamente vivo, y el sintoma enganya (parece que el
+      # servicio esta caido y lo que falta es el reenvio). Los tres puertos de este trabajo
+      # estan declarados en forwardPorts (.devcontainer/devcontainer.json) para que no dependan
+      # del auto-descubrimiento de VS Code; si el target aparece caido tras arrancar los
+      # servicios, lo primero que hay que mirar es el panel Ports, no los logs del servicio.
       - targets: ["host.docker.internal:8080"]
       - targets: ["host.docker.internal:8085"]
       - targets: ["host.docker.internal:8089"]

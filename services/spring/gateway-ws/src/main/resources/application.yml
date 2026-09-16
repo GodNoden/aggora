@@ -27,3 +27,19 @@ aggora:
     ticks-canonical: market.ticks.canonical
     portfolio-updates: portfolio.updates
     alerts: alerts.raised
+
+# --- Metricas para Prometheus ---------------------------------------------------
+# El endpoint es /actuator/prometheus, en el mismo puerto que la pagina (8089). Las etiquetas
+# stack y service son las que permiten poner las dos implementaciones en el mismo panel.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      stack: spring
+      service: ${spring.application.name}

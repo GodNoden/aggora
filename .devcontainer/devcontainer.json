@@ -32,6 +32,17 @@
     // desde /workspaces/aggora, no la encontraria.
     // AJUSTA LA RUTA del segundo montaje a la de tu repo en el host (en WSL2 suele ser
     // /home/<usuario>/<repo>).
+    // Los puertos que VS Code reenvia al host. Hacen falta para DOS cosas, y por eso estan
+    // declarados y no se dejan al azar del auto-descubrimiento:
+    //   - ver las paginas en el navegador de Windows (las de demo de los dos gateways);
+    //   - que Prometheus pueda scrapearlas: los servicios corren DENTRO del devcontainer y el
+    //     Prometheus del compose llega por host.docker.internal, que solo responde para los
+    //     puertos que el host de WSL2 tiene reenviados (ver infra/prometheus/prometheus.yml).
+    "forwardPorts": [8089, 8189],
+    "portsAttributes": {
+      "8089": { "label": "gateway-ws (Spring)", "onAutoForward": "silent" },
+      "8189": { "label": "gateway-ws (Quarkus)", "onAutoForward": "silent" }
+    },
     "runArgs": [
       "--network=aggora-net",
       "--mount", "type=bind,source=/home/noei/aggora,target=/home/noei/aggora"

@@ -28,6 +28,19 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-kafka</artifactId>
     </dependency>
+    <!-- Metricas. A diferencia de los servicios sin servidor web, este ya lo tiene (un
+         WebSocket lo necesita), asi que se publica /actuator/prometheus como en el simulador y
+         en la analitica: asi el gateway de Spring se ve en el mismo panel de Grafana que el de
+         Quarkus filtrando por la etiqueta stack. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>io.confluent</groupId>
       <artifactId>kafka-avro-serializer</artifactId>
