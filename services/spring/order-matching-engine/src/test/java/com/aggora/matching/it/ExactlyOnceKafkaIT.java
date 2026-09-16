@@ -101,17 +101,27 @@ class ExactlyOnceKafkaIT {
             // 2) Publica otra y la ABORTA: el mensaje esta en el log, pero no cuenta para nadie.
             productor.beginTransaction();
             productor.send(new ProducerRecord<>(TOPIC, "AAPL", ejecucion("AAPL")));
+
+            // ANTES DE ABORTAR hay que comprobar que el registro ha llegado al log, porque
+            // send() es asincrono y abortTransaction() DESCARTA lo que el hilo emisor todavia no
+            // habia mandado. Abortar justo despues del send es una carrera, y el CI la destapo dos
+            // veces: el registro abortado no llegaba a escribirse y el test fallaba diciendo que
+            // faltaba AAPL (con lo que no probaba nada de la transaccion, solo que no se escribio).
+            //
+            // read_uncommitted no filtra por transaccion: si el registro se ve con la transaccion
+            // ABIERTA, esta en el log, y a partir de ahi abortar solo puede esconderlo. Medido
+            // contra el cluster local: aparece en ~0,6 s.
+            assertThat(leer(TOPIC, "read_uncommitted", 2))
+                    .as("la abortada llega al log antes de abortar (si no, el test no probaria nada)")
+                    .contains("AAPL");
+
             productor.abortTransaction();
         }
 
-        // Se le pide a cada consumidor lo que TIENE que ver, y se espera a que lo vea: cortar en
-        // cuanto llega el primer mensaje es una carrera (el CI la destapo: el consumidor
-        // read_uncommitted se iba con el confirmado antes de que el abortado fuera visible).
-        List<String> confirmados = leer(TOPIC, "read_committed", 1);
-        List<String> todos = leer(TOPIC, "read_uncommitted", 2);
-
-        assertThat(confirmados).as("solo la transaccion confirmada").containsExactly("ASML");
-        assertThat(todos).as("la abortada si esta en el log").containsExactlyInAnyOrder("ASML", "AAPL");
+        // Con el registro ya en el log, esto es determinista: el commit lo deja ver y el abort lo
+        // esconde. Se le pide a cada consumidor lo que TIENE que ver y se espera a que lo vea.
+        assertThat(leer(TOPIC, "read_committed", 1)).as("solo la transaccion confirmada").containsExactly("ASML");
+        assertThat(leer(TOPIC, "read_uncommitted", 2)).as("la abortada si esta en el log").containsExactlyInAnyOrder("ASML", "AAPL");
     }
 
     /** Productor transaccional con el serializador Avro de Confluent contra el registro de verdad. */
@@ -147,7 +157,10 @@ class ExactlyOnceKafkaIT {
         List<String> simbolos = new ArrayList<>();
         try (KafkaConsumer<String, Execution> consumidor = new KafkaConsumer<>(props)) {
             consumidor.subscribe(List.of(topic));
-            long limite = System.currentTimeMillis() + Duration.ofSeconds(15).toMillis();
+            // 30 s y no 15: la primera lectura del test ocurre con la transaccion todavia abierta y
+            // dentro de estos segundos entran el arranque del consumidor, el descubrimiento del
+            // coordinador de grupo y la asignacion de particiones.
+            long limite = System.currentTimeMillis() + Duration.ofSeconds(30).toMillis();
             while (System.currentTimeMillis() < limite) {
                 simbolos.addAll(simbolosDe(consumidor.poll(Duration.ofMillis(500))));
                 if (simbolos.size() >= esperados) {

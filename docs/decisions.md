@@ -1075,3 +1075,30 @@ $/mes segun lo que tarde cada invocacion. En reposo, unos 16 $/mes sin contar el
 unica pieza que factura tambien en vacaciones. Es el argumento del capitulo 19 con numeros: la
 escala a cero brilla donde hay huecos, no donde hay una tuberia constante.
 
+## El test de exactly-once que no era inestable, sino falso
+
+El IT de `order-matching-engine` (`la_transaccion_abortada_no_la_ve_nadie`) fallo en CI dos veces
+con el mismo sintoma: `read_uncommitted` veia solo `["ASML"]` y no la abortada. El primer arreglo
+fue un parche mal diagnosticado (leer esperando los dos registros), y volvio a fallar porque el
+problema no era *cuando* se leia, sino que **el registro abortado no estaba en el log**.
+
+La causa, reproducida contra el cluster local con un programa suelto que habla Kafka directamente
+(`/tmp/PruebaTxn2.java`, sin Testcontainers, que en este devcontainer no arranca):
+
+- `send()` es asincrono y `abortTransaction()` **descarta lo que el hilo emisor no haya mandado**.
+  Secuencia "`send` y abortar inmediatamente": **8 fallos de 8** intentos. No era inestable: era
+  determinista al fallar, y en una maquina rapida como la del runner casi siempre pierde la carrera.
+- La secuencia correcta, la que hace ahora el test: tras el `send`, esperar a **ver** el registro
+  con `read_uncommitted` (que no filtra por transaccion, asi que ve los de una transaccion abierta)
+  y **solo entonces** abortar. Resultado: **8 de 8 correctos** (`read_committed` = `[ASML]`,
+  `read_uncommitted` = `[ASML, AAPL]`). Medido, aparece en el log en ~0,6 s.
+
+El test ademas gana una asercion que antes no tenia: si la abortada no llega al log, falla diciendo
+exactamente eso, en vez de fallar en la asercion final con un mensaje que parecia un problema de
+aislamiento. **Un test que da por hecho el estado que dice comprobar es peor que no tenerlo**, y esto
+es lo que justifica tener el cluster local a mano cuando el runner no se puede reproducir.
+
+Nota de entorno: Testcontainers sigue sin funcionar en este devcontainer (el socket de Docker
+Desktop no es el del motor), asi que este IT se sigue verificando en CI. Lo que se pudo verificar
+aqui es la **semantica y la carrera** contra los tres brokers locales, que es donde estaba el fallo.
+

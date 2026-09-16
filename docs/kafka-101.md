@@ -458,6 +458,22 @@ excepcion y la transaccion se deshaga, de modo que el mensaje siga pendiente. En
 produccion, el destino de un mensaje que no se puede procesar es un topic de descartes
 con su aviso (Fase 6), no el olvido.
 
+**Y una segunda trampa, esta descubierta escribiendo el test de esa misma tabla** (y que costo
+dos ejecuciones de CI entenderla). `send()` es **asincrono**: el registro se queda en un bufer y lo
+manda otro hilo. `abortTransaction()` **descarta lo que ese hilo todavia no ha mandado**, asi que
+abortar justo despues del `send()` significa, muchas veces, que **el registro abortado nunca llego a
+existir**. Medido contra el cluster de verdad, la secuencia "send y abortar inmediatamente" fallo
+**8 de 8 veces**: no era un test inestable, era un test que no probaba nada (daba por hecho que el
+dato estaba en el log sin comprobarlo).
+
+Lo correcto, y lo que hace el test ahora, es **comprobar que el registro esta en el log antes de
+abortar**: se lee con `read_uncommitted`, que **no filtra por transaccion** y por tanto ve los
+registros de una transaccion abierta; en cuanto aparece la clave, ya esta escrito, y abortar a
+partir de ahi solo puede esconderlo. Con esa espera, 8 de 8 veces salio lo que tenia que salir:
+`read_committed` ve la confirmada y `read_uncommitted` ve las dos. **Leccion**: cuando un test falla
+"a veces", lo primero no es darle mas tiempo ni mas reintentos, es preguntarse si lo que el test
+supone que ha pasado ha pasado de verdad.
+
 **Idempotencia no es lo mismo que transacciones.** El productor idempotente (Fase 1)
 evita duplicados de UN productor reintentando UN mensaje. La transaccion evita
 duplicados entre VARIOS mensajes y offsets, y sobrevive a que el proceso se caiga en
