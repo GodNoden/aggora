@@ -898,3 +898,31 @@ una imagen nativa). El binario pesa 91,7 MB.
 Y el resumen de la familia de tropiezos del nativo, que es lo que pide documentar la Fase 9:
 BouncyCastle (TLS), Brotli (compresión), commons-compress + xz (API nueva) y la reflexión de los
 serializadores. **En una imagen nativa no existe lo "opcional en tiempo de ejecución".**
+
+
+### El nativo, cerrado: dos binarios y los números
+
+| | Spring (JVM) | Quarkus (JVM) | Quarkus (nativo) |
+|---|---|---|---|
+| Arranque | 2,099 s | 1,123 s | **0,022 s** |
+| RSS en reposo | 428 MB | 332 MB | **114-124 MB** |
+| Hilos | 37 | 45 | 15 |
+| Tamaño | — | — | 91,7 MB |
+
+Dos servicios compilados (`ingestion-normalizer` y `market-data-simulator`), y **el segundo salió a
+la primera** porque el fichero de reflexión ya estaba generado: eso es lo que se gana dejando de
+arreglar la reflexión clase a clase. Los dos consumen y publican (Avro y Schema Registry dentro del
+binario).
+
+### El throughput: medido, pero NO comparable (y por qué)
+
+Con los dos stacks corriendo a la vez sobre la misma entrada, la lectura fue `market.analytics` a
+**3.940 msg/s** frente a `market.analytics.q` a **85 msg/s**. **Ese número no se puede publicar como
+comparación**, y merece la pena explicar por qué: los dos pipelines estaban **poniéndose al día**
+(uno drenando el atraso de ticks y el otro reconstruyendo su estado desde el changelog), así que lo
+que mide no es su capacidad sino en qué punto de la recuperación estaba cada uno.
+
+Para comparar de verdad hacen falta dos cosas: que los dos estén **con lag 0**, y un **generador de
+carga** que empuje un caudal controlado (`kafka-producer-perf-test` contra `market.ticks.raw`) en vez
+del caudal natural del simulador (~70 msg/s), que no estresa a ninguno de los dos. Queda pendiente
+con la receta escrita; el montaje ya está hecho.

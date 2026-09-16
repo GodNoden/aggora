@@ -341,8 +341,14 @@
   implementación de Quarkus **en paralelo** con la de Spring, misma entrada y salidas propias
   (`market.analytics.q`, `portfolio.updates.q`, …), cada motor de Streams con su `application-id` y
   su estado. Verificado: los dos pipelines procesan a la vez. Detalle en `docs/decisions.md`.
-- ⏭️ **Fase 8 (lo que queda)** — la **imagen nativa de GraalVM** para dos servicios y las medidas, y
-  correr los dos stacks a la vez (con `group.id` y topics de salida propios).
+- ✅ **Fase 8 — cerrada**: los siete servicios portados, los dos stacks corriendo a la vez y la
+  **imagen nativa de GraalVM para dos servicios** (`ingestion-normalizer` y `market-data-simulator`):
+  arranque **0,022 s** y RSS **114-124 MB**, frente a 1,123 s y 332 MB de la JVM de Quarkus y
+  2,099 s y 428 MB de Spring. Receta en `scripts/build-native.sh`, gotchas en `docs/decisions.md` y
+  el análisis del entorno en `docs/dev-environment.md`.
+- ⏭️ **Lo que queda** — el throughput comparable (los dos stacks con lag 0 y un generador de carga
+  controlando el caudal) y los tests de integración en el CI (ya montados; en local topan con el
+  socket de Docker Desktop).
   El nativo **intentado y bloqueado en esta máquina**: la receta corregida está en
   `scripts/build-native.sh` y los cuatro tropiezos (la imagen del builder no trae Maven, `-Dnative`
   no hace nada sin el perfil `native` en el pom, el contenedor de Maven necesita el CLI de docker
