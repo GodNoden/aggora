@@ -104,8 +104,11 @@ class ExactlyOnceKafkaIT {
             productor.abortTransaction();
         }
 
-        List<String> confirmados = leer(TOPIC, "read_committed");
-        List<String> todos = leer(TOPIC, "read_uncommitted");
+        // Se le pide a cada consumidor lo que TIENE que ver, y se espera a que lo vea: cortar en
+        // cuanto llega el primer mensaje es una carrera (el CI la destapo: el consumidor
+        // read_uncommitted se iba con el confirmado antes de que el abortado fuera visible).
+        List<String> confirmados = leer(TOPIC, "read_committed", 1);
+        List<String> todos = leer(TOPIC, "read_uncommitted", 2);
 
         assertThat(confirmados).as("solo la transaccion confirmada").containsExactly("ASML");
         assertThat(todos).as("la abortada si esta en el log").containsExactlyInAnyOrder("ASML", "AAPL");
@@ -125,8 +128,11 @@ class ExactlyOnceKafkaIT {
         return new KafkaProducer<>(props);
     }
 
-    /** Lee el topic con el nivel de aislamiento que se le pida. */
-    private static List<String> leer(String topic, String isolationLevel) {
+    /**
+     * Lee el topic con el nivel de aislamiento que se le pida, hasta ver {@code esperados} mensajes
+     * (o hasta que se acabe el tiempo).
+     */
+    private static List<String> leer(String topic, String isolationLevel, int esperados) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "it-" + isolationLevel + "-" + UUID.randomUUID());
@@ -143,14 +149,22 @@ class ExactlyOnceKafkaIT {
             consumidor.subscribe(List.of(topic));
             long limite = System.currentTimeMillis() + Duration.ofSeconds(15).toMillis();
             while (System.currentTimeMillis() < limite) {
-                ConsumerRecords<String, Execution> records = consumidor.poll(Duration.ofMillis(500));
-                for (ConsumerRecord<String, Execution> record : records) {
-                    simbolos.add(record.value().getSymbol());
-                }
-                if (!simbolos.isEmpty()) {
+                simbolos.addAll(simbolosDe(consumidor.poll(Duration.ofMillis(500))));
+                if (simbolos.size() >= esperados) {
+                    // Una vuelta mas para dar tiempo a que aparezca lo que falta y a descartar que
+                    // haya de mas (que es justo lo que distingue a los dos niveles de aislamiento).
+                    simbolos.addAll(simbolosDe(consumidor.poll(Duration.ofMillis(700))));
                     break;
                 }
             }
+        }
+        return simbolos;
+    }
+
+    private static List<String> simbolosDe(ConsumerRecords<String, Execution> records) {
+        List<String> simbolos = new ArrayList<>();
+        for (ConsumerRecord<String, Execution> record : records) {
+            simbolos.add(record.value().getSymbol());
         }
         return simbolos;
     }
