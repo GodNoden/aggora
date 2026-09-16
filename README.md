@@ -202,7 +202,14 @@ services/                  Maven aggregator: the platform in both implementation
     portfolio-risk/        positions and P&L per account
     alerting-service/      anomaly rules
     audit-log/             transactional outbox
+    gateway-ws/            live WebSocket feed for browsers (the fan-out)
+  quarkus/                 the same eight services, ported in phase 8
+    .../                   same names as above, plus the native-image recipe
 ```
+
+The eight services exist **twice** (`services/spring/*` and `services/quarkus/*`) on
+purpose: same topics, same contracts, two frameworks, so the comparison is measured
+instead of argued. See [SPRING_VS_QUARKUS.md](SPRING_VS_QUARKUS.md).
 
 ---
 
