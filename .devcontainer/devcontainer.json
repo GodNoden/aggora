@@ -6,9 +6,19 @@
         "version": "21",
         "installMaven": true,
         "installGradle": true
-      }
+      },
+      // Docker DENTRO del devcontainer, la forma estandar: la feature monta el socket del host y
+      // ademas instala el CLI de docker. Hacen falta LAS DOS cosas:
+      //   - el socket, para que Testcontainers (Java) levante Kafka y Postgres en los tests de
+      //     integracion y para que el plugin de Quarkus arranque el contenedor de Mandrel;
+      //   - el CLI, porque el plugin de Quarkus lo INVOCA para compilar el nativo
+      //     (sin el: "ContainerRuntimeUtil.detectContainerRuntime: no docker").
+      "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
     },
-    // La línea que hace la magia: el devcontainer se une a aggora-net
+    // El devcontainer se une a aggora-net, para hablar con Kafka por NOMBRE (nunca localhost).
+    // El acceso a Docker lo da la feature docker-outside-of-docker de arriba.
+    // OJO: eso da al contenedor control sobre el Docker del host. Es comodo en la maquina de uno y
+    // NO lo es en un devcontainer compartido.
     "runArgs": ["--network=aggora-net"],
   
     "customizations": {
