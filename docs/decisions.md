@@ -842,3 +842,25 @@ proxy de por medio. Perseguirlo en local es cambiar a donde apunta el enlace den
 (hay que encontrar el socket del motor entre los que ofrece WSL) y no aporta nada al aprendizaje de
 Kafka: el objetivo de estos tests -que el cableado funcione contra un broker y una base de datos de
 verdad- ya queda cubierto por el pipeline.
+
+### El nativo compila (y donde tropieza ahora)
+
+**BUILD SUCCESS**: el binario sale, `ingestion-normalizer-quarkus-0.1.0-SNAPSHOT-runner`, de **91,7 MB**.
+Por el camino hubo que añadir tres dependencias opcionales que el análisis estático convierte en
+obligatorias —**BouncyCastle** (TLS), **Brotli** (compresión) y **commons-compress + xz** (API nueva
+de compresión)—, y ese es el aprendizaje real de este tramo: *en una imagen nativa, "opcional en
+tiempo de ejecución" no existe*.
+
+Y al ejecutarlo aparece el cuarto de la familia, que es el más clásico de todos:
+
+```
+java.lang.NoSuchMethodException ... Class.getDeclaredConstructor
+  at org.apache.kafka.common.utils.Utils.newInstance
+```
+
+**La reflexión**: en la JVM, `Utils.newInstance` puede construir una clase por su nombre; en una
+imagen nativa esa clase no existe salvo que se declare. Es exactamente el *gotcha* que el informe de
+la Fase 9 pide documentar. El arreglo es declarar las clases para reflexión (un
+`@RegisterForReflection` sobre los serializadores de Confluent, o el `reflection-config.json`
+equivalente) y volver a compilar. **No se ha hecho todavía**, así que el arranque y el RSS del
+binario **no están medidos**: no tiene sentido apuntar un número de un proceso que muere al arrancar.
