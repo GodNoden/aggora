@@ -61,7 +61,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ingestion-normalizer-lambda
-          path: services/lambda/ingestion-normalizer-lambda/target/*-lambda.jar
+          path: services/lambda/ingestion-normalizer-lambda/target/*-shaded.jar
           if-no-files-found: error
 
   infra:

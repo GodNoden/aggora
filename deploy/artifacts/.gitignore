@@ -1,0 +1,5 @@
+# Los jars compilados no se versionan: son artefactos de build, no fuente.
+# Este fichero existe para que el directorio siga en git (Terraform lo lee con fileset)
+# sin arrastrar los .jar.
+*
+!.gitignore

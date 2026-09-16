@@ -1,0 +1,105 @@
+# Lo que corre en Docker DENTRO de la VM: el estado que no es Kafka.
+#
+#   docker compose --env-file /opt/aggora/deploy/.env -f docker-compose.vm.yml up -d
+#
+# NO hay Kafka ni Schema Registry: son gestionados y viven fuera (capitulo 19). Lo que
+# queda aqui es Postgres (lo necesita el patron outbox del audit-log) y la observabilidad.
+#
+# Reutiliza los ficheros de infra/ en vez de reescribirlos: la VM baja el repo a
+# /opt/aggora, y este compose (en /opt/aggora/deploy/) monta ../infra/prometheus y
+# ../infra/grafana. Los servicios de Spring NO estan aqui: corren con systemd en la VM,
+# asi que Prometheus los alcanza por host.docker.internal (de ahi el extra_hosts, que en
+# Docker sobre Linux no existe por defecto).
+#
+# Las credenciales salen del .env que escribe deploy/user-data.sh (0600, y no se versiona).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aggora-postgres
+    hostname: postgres
+    restart: unless-stopped
+    ports:
+      # Solo en localhost: el audit-log corre en la VM (systemd), no en esta red.
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aggora-vm
+
+  # Traduce el protocolo de Kafka a metricas de Prometheus: es el unico que habla con el
+  # broker gestionado, y por eso lleva el SASL. Ojo: --kafka.server NO acepta una lista
+  # con comas (el exporter intenta resolver la cadena entera como un host), asi que
+  # user-data.sh le pasa un solo broker.
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+    container_name: aggora-kafka-exporter
+    hostname: kafka-exporter
+    restart: unless-stopped
+    command:
+      - "--kafka.server=${KAFKA_EXPORTER_SERVER}"
+      - "--sasl.enabled"
+      - "--sasl.mechanism=${KAFKA_EXPORTER_MECHANISM}"
+      - "--sasl.username=${KAFKA_SASL_USERNAME}"
+      - "--sasl.password=${KAFKA_SASL_PASSWORD}"
+      - "--tls.enabled"
+    ports:
+      - "127.0.0.1:9308:9308"
+    networks:
+      - aggora-vm
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aggora-prometheus
+    hostname: prometheus
+    restart: unless-stopped
+    depends_on:
+      - kafka-exporter
+    volumes:
+      # El mismo prometheus.yml del repo. Los targets de Quarkus (8185/8189) saldran
+      # caidos: en esta VM solo se despliega el stack de Spring.
+      - ../infra/prometheus:/etc/prometheus:ro
+    # Sin esto, host.docker.internal no resuelve en Docker sobre Linux y Prometheus no ve
+    # las aplicaciones (que corren con systemd, no en esta red).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - aggora-vm
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: aggora-grafana
+    hostname: grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      # Igual que en infra/: acceso anonimo para no depender de un login en una maquina
+      # que solo se ve por el tunel de SSM. En un despliegue con mas exposicion, se quita.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ../infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../infra/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - aggora-vm
+
+# Red propia de la VM: no hace falta la aggora-net externa del desarrollo, que existe para
+# unir el host (devcontainer) con los contenedores. Aqui todo lo que habla con Kafka es
+# externo.
+networks:
+  aggora-vm:
+    name: aggora-vm

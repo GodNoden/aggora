@@ -1006,3 +1006,72 @@ ningun tick. Medido con los dos stacks en marcha, 12 s por gateway:
 | Spring (8089) | `101 Switching Protocols` | 180 | 10 | 30 |
 | Quarkus (8189) | `101 Switching Protocols` | 180 | 10 | 11 |
 
+## Fase 10: el despliegue, y lo que se aprendio montandolo
+
+El plan del capitulo 19 convertido en artefactos. Todo vive en `deploy/` (runbook en ingles) y en
+el tercer arbol `services/lambda/`. Lo primero que hay que decir es lo que **no** se hizo: no se ha
+desplegado en AWS. No hay cuenta ni credenciales, y desplegar de verdad cuesta dinero que nadie ha
+aprobado. Lo que hay son artefactos **validados**, y esta es la lista exacta de lo que si esta
+comprobado y lo que no.
+
+### Las tres decisiones que definen el despliegue
+
+| Decision | Por que |
+|---|---|
+| El broker (y el Schema Registry) se crea **a mano en la consola**, no con Terraform | Terraform es para recursos que se pueden destruir y volver a crear; un cluster gestionado que factura por hora y guarda estado no es uno de ellos. La IaC describe todo lo que lo rodea (VM, Lambda, permisos, bucket, alarmas) y los secretos entran por SSM Parameter Store como `SecureString` |
+| Lo que tiene estado va a **una VM siempre encendida** con `systemd` | Los state stores de los 3 servicios de Streams viven en disco local, el rebalanceo necesita un proceso vivo y el exactly-once mantiene una transaccion abierta: nada de eso encaja en serverless. Y `Restart=always` es lo que resuelve la carrera de topics sin script de arranque: el que arranque antes de que exista su topic falla, y a los 15 s ya existe |
+| Solo `ingestion-normalizer` va a **Lambda** con un *event source mapping* | Es el unico servicio sin estado. Pero no es "la misma app con otro envoltorio": Lambda hace el bucle, entrega un lote, el valor llega en base64 y **los offsets los confirma el servicio** |
+
+### El bug que aparecio al reconciliar los dos frentes
+
+El handler de Lambda y la infraestructura se escribieron a la vez, y al juntarlos aparecieron tres
+desajustes que ninguno de los dos lados podia ver por separado. Es el argumento mas honesto de este
+proyecto a favor de **integrar y verificar, no de escribir y confiar**:
+
+1. **Los nombres de las variables de entorno no coincidian.** Terraform pasaba
+   `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_TARGET_TOPIC`, `KAFKA_DEAD_LETTER_TOPIC`,
+   `KAFKA_FX_REFERENCE_TOPIC`, `KAFKA_SASL_USERNAME`/`PASSWORD`; el handler leia
+   `BOOTSTRAP_SERVERS`, `TOPIC_CANONICAL`, `TOPIC_DLT` y una cadena JAAS ya montada. Compilaba
+   perfectamente y en AWS habria arrancado con los valores por defecto: apuntando a
+   `kafka-1:9092` y publicando en los topics locales. Se alineo el handler con el contrato de
+   despliegue, y ahora la cadena JAAS se monta en el codigo a partir de usuario y clave (el
+   modulo JAAS depende del mecanismo: PLAIN y SCRAM no usan el mismo).
+2. **Faltaba la referencia de divisas.** Los otros dos normalizers publican los pares FX en el
+   topic compactado `market.fx.reference`, que es la GlobalKTable que usa la analitica para
+   convertir el precio europeo de ASML. La Lambda solo publicaba el canonico y el DLT, asi que el
+   pipeline desplegado se habria quedado sin tipos de cambio y el join habria fallado. Anadido con
+   un tercer productor y su test (5 tests en verde en vez de 4).
+3. **El jar que se subia a Lambda era el fino.** El `lambda_jar_path` apuntaba a
+   `...-0.1.0-SNAPSHOT.jar` (121 KB, sin dependencias) en vez de al jar gordo del `shade`
+   (`...-shaded.jar`, 34 MB). Lambda habria fallado con `ClassNotFoundException` en la primera
+   invocacion. Es el tipo de error que no se ve hasta que se despliega, y por eso el CI construye
+   el paquete y lo sube como artefacto.
+
+### Lo que se verifico, y con que
+
+| Comprobacion | Como |
+|---|---|
+| El tercer arbol compila y sus tests pasan | `mvn -pl lambda/ingestion-normalizer-lambda -am package` -> BUILD SUCCESS, **5 tests** |
+| Los tres arboles juntos | `mvn test` en `services/` (agrega Spring, Quarkus y Lambda) |
+| La infraestructura es valida | `terraform fmt -check -recursive` y, **montando la raiz del repo**, `terraform init -backend=false` + `terraform validate` -> `Success! The configuration is valid.` |
+| El compose de la VM | `docker compose -f deploy/docker-compose.vm.yml config -q` -> exit 0 |
+| La unidad de systemd | `systemd-analyze verify` (cazo un bug real: `Environment=JAVA_OPTS=-Xms128m -Xmx320m` sin comillas hacia que systemd ignorase `-Xmx320m`) |
+
+**El detalle de `validate` importa**: con el directorio `deploy/terraform` montado a secas, Terraform
+falla leyendo `../user-data.sh`, porque el modulo lee a proposito ficheros fuera de su carpeta. No es
+un fallo de configuracion —es el mount— y por eso la verificacion buena monta la raiz del repo. La
+primera vez que se corrio asi, `validate` paso; el CI hace exactamente eso.
+
+**Lo que no se puede verificar sin cuenta**: que la red y los permisos dejen hablar a la VM con el
+broker, que el *event source mapping* entregue lotes, y que las alarmas salten. Esta escrito como
+pasos concretos en `deploy/README.md` para que quien lo despliegue tenga una lista, no una intuicion.
+
+### Los numeros, para que no haya sorpresas
+
+Precios comprobados el 2026-09-16 en `eu-west-1` y citados con su URL en `deploy/README.md`: la
+`t4g.small` son ~13,43 $/mes (mas 1,76 $ del disco de 20 GB), S3 y SSM son calderilla, y **lo que
+de verdad se paga es la Lambda y sus logs**: a 60 msg/s con lotes de 10 salen del orden de 52 a 130
+$/mes segun lo que tarde cada invocacion. En reposo, unos 16 $/mes sin contar el broker, que es la
+unica pieza que factura tambien en vacaciones. Es el argumento del capitulo 19 con numeros: la
+escala a cero brilla donde hay huecos, no donde hay una tuberia constante.
+

@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutionException;
 
 import com.aggora.avro.Tick;
 import com.aggora.avro.canonical.CanonicalTick;
+import com.aggora.avro.reference.FxRate;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -91,6 +92,7 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
 
     private static final String TOPIC_CANONICAL_POR_DEFECTO = "market.ticks.canonical";
     private static final String TOPIC_DLT_POR_DEFECTO = "market.ticks.raw.DLT";
+    private static final String TOPIC_FX_POR_DEFECTO = "market.fx.reference";
     private static final String BOOTSTRAP_POR_DEFECTO = "kafka-1:9092,kafka-2:9092,kafka-3:9092";
     private static final String REGISTRY_POR_DEFECTO = "http://schema-registry:8081";
 
@@ -108,6 +110,12 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
 
         /** Publica el registro original en el topic de descartes con el motivo del descarte. */
         void publicarDeadLetter(String key, byte[] valorOriginal, String motivo);
+
+        /**
+         * Publica el tipo de cambio de referencia en el topic compactado. Solo lo usan los pares
+         * de divisas: es el mismo dato que el evento canonico, pero leido como tabla.
+         */
+        void publicarFx(String pair, FxRate rate);
     }
 
     private final TickSink sink;
@@ -179,6 +187,24 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
         }
 
         sink.publicar(tick.getSymbol(), aCanonico(tick, registro));
+        publicarReferenciaFx(tick);
+    }
+
+    /**
+     * Los pares de divisas son DATO DE REFERENCIA: ademas del evento canonico se publican al
+     * topic compactado, para que quien lo necesite lo lea como tabla (el ultimo tipo de cambio
+     * por par) sin reprocesar el stream entero. Copiado del normalizer de Spring, incluida la
+     * suposicion de que el par cotiza como XXX/USD.
+     */
+    private void publicarReferenciaFx(Tick tick) {
+        if (tick.getAssetClass() != com.aggora.avro.AssetClass.FX) {
+            return;
+        }
+        sink.publicarFx(tick.getSymbol(), FxRate.newBuilder()
+                .setPair(tick.getSymbol())
+                .setRate(tick.getPrice())
+                .setEventTime(tick.getEventTime())
+                .build());
     }
 
     /**
@@ -287,7 +313,21 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
         if (mecanismo != null && !mecanismo.isBlank()) {
             props.put("sasl.mechanism", mecanismo);
         }
+        // Las credenciales llegan separadas (usuario y clave) porque asi las guarda el
+        // despliegue; la cadena JAAS que espera el cliente de Kafka se monta aqui. Si alguien
+        // prefiere pasarla ya montada, KAFKA_SASL_JAAS_CONFIG manda.
         String jaas = System.getenv("KAFKA_SASL_JAAS_CONFIG");
+        if (jaas == null || jaas.isBlank()) {
+            String usuario = System.getenv("KAFKA_SASL_USERNAME");
+            String clave = System.getenv("KAFKA_SASL_PASSWORD");
+            if (usuario != null && !usuario.isBlank() && clave != null && !clave.isBlank()) {
+                // El modulo JAAS depende del mecanismo: PLAIN y SCRAM no usan el mismo.
+                String modulo = mecanismo != null && mecanismo.contains("SCRAM")
+                        ? "org.apache.kafka.common.security.scram.ScramLoginModule"
+                        : "org.apache.kafka.common.security.plain.PlainLoginModule";
+                jaas = modulo + " required username=\"" + usuario + "\" password=\"" + clave + "\";";
+            }
+        }
         if (jaas != null && !jaas.isBlank()) {
             props.put("sasl.jaas.config", jaas);
         }
@@ -301,15 +341,24 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
      */
     private static final class KafkaTickSink implements TickSink {
 
-        private final String topicCanonical = configuracion("TOPIC_CANONICAL", TOPIC_CANONICAL_POR_DEFECTO);
-        private final String topicDlt = configuracion("TOPIC_DLT", TOPIC_DLT_POR_DEFECTO);
+        // Los nombres son los del contrato de despliegue (deploy/terraform/main.tf y
+        // deploy/README.md): si se cambia uno aqui hay que cambiarlo alli, y al reves.
+        private final String topicCanonical = configuracion("KAFKA_TARGET_TOPIC", TOPIC_CANONICAL_POR_DEFECTO);
+        private final String topicDlt = configuracion("KAFKA_DEAD_LETTER_TOPIC", TOPIC_DLT_POR_DEFECTO);
+        private final String topicFx = configuracion("KAFKA_FX_REFERENCE_TOPIC", TOPIC_FX_POR_DEFECTO);
 
         private static KafkaProducer<String, CanonicalTick> productorCanonico;
         private static KafkaProducer<String, byte[]> productorDlt;
+        private static KafkaProducer<String, FxRate> productorFx;
 
         @Override
         public void publicar(String key, CanonicalTick tick) {
             enviar(productorCanonico(), new ProducerRecord<>(topicCanonical, key, tick), topicCanonical);
+        }
+
+        @Override
+        public void publicarFx(String pair, FxRate rate) {
+            enviar(productorFx(), new ProducerRecord<>(topicFx, pair, rate), topicFx);
         }
 
         @Override
@@ -345,6 +394,15 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
             return productorCanonico;
         }
 
+        private static synchronized KafkaProducer<String, FxRate> productorFx() {
+            if (productorFx == null) {
+                Properties props = configuracionProductor();
+                props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
+                productorFx = new KafkaProducer<>(props);
+            }
+            return productorFx;
+        }
+
         private static synchronized KafkaProducer<String, byte[]> productorDlt() {
             if (productorDlt == null) {
                 Properties props = configuracionProductor();
@@ -359,7 +417,7 @@ public class AggoraNormalizerHandler implements RequestHandler<KafkaEvent, Strin
         private static Properties configuracionProductor() {
             Properties props = new Properties();
             props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
-                    configuracion("BOOTSTRAP_SERVERS", BOOTSTRAP_POR_DEFECTO));
+                    configuracion("KAFKA_BOOTSTRAP_SERVERS", BOOTSTRAP_POR_DEFECTO));
             props.put(ProducerConfig.ACKS_CONFIG, "all");
             props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
             props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());

@@ -1,0 +1,14 @@
+# Terraform: ni el estado ni los plugins se versionan.
+#
+# El state es un SECRETO: aqui dentro van las credenciales de Kafka (los valores de los
+# parametros SSM y las variables de entorno de la Lambda). No lo subas nunca.
+.terraform/
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+crash.log
+
+# Variables con valores reales (los secretos van por TF_VAR_, ver README).
+terraform.tfvars
+*.auto.tfvars
+phase10.tfplan

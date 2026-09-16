@@ -1,0 +1,40 @@
+# Ejemplo de variables para `terraform apply`. Copiar a terraform.tfvars (que NO se
+# versiona) o pasar los valores por entorno.
+#
+# Los secretos NO van en este fichero. Se pasan por TF_VAR_ para que no queden en el
+# historial del shell ni en terraform.tfvars:
+#
+#   export TF_VAR_kafka_bootstrap_servers="pkc-xxxxx.eu-west-1.aws.confluent.cloud:9092"
+#   export TF_VAR_kafka_schema_registry_url="https://psrc-xxxxx.eu-west-1.aws.confluent.cloud"
+#   export TF_VAR_kafka_sasl_username="..."
+#   export TF_VAR_kafka_sasl_password="..."
+#   export TF_VAR_postgres_password="..."
+#
+# Ojo: los secretos acaban en el state de Terraform. El state tambien es un secreto.
+
+aws_region   = "eu-west-1"
+project      = "aggora"
+instance_type = "t4g.small"
+
+# Vacio = la primera subred de la VPC por defecto.
+subnet_id = ""
+
+# Vacio = aggora-artifacts-<account_id>. Tiene que ser unico en todo AWS.
+artifacts_bucket_name = ""
+
+# PLAIN para Confluent Cloud, SCRAM-SHA-256 para Redpanda Cloud.
+kafka_sasl_mechanism = "PLAIN"
+
+# Topics que usa la Lambda. Tienen que existir con las mismas particiones que en local.
+lambda_source_topic = "market.ticks.raw"
+lambda_target_topic = "market.ticks.canonical"
+
+# Vacio = no se crea la suscripcion por correo al topic SNS de alarmas.
+alarm_email = ""
+
+log_retention_days = 14
+
+# Opcionales: sin clave, el simulador arranca con precios semilla y ticks sinteticos.
+# Conveniente pasarlas por TF_VAR_ (son secretas).
+# twelvedata_api_key  = ""
+# alphavantage_api_key = ""

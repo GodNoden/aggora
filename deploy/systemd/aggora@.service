@@ -1,0 +1,67 @@
+# Unidad plantilla de Aggora: una sola para los siete servicios de la VM.
+#
+#   systemctl status aggora@analytics-streams
+#   journalctl -u aggora@analytics-streams -f
+#
+# El nombre de instancia (%i) es el nombre del servicio, y con el se resuelven el jar y
+# el fichero de entorno. Los siete arrancan el mismo jar con otro nombre: por eso hay una
+# unidad y no siete ficheros que se quedan desincronizados.
+#
+# POR QUE Restart=always ES LO QUE RESUELVE LA CARRERA DE TOPICS
+#
+# Kafka Streams FALLA al arrancar si un topic de origen todavia no existe
+# ("MissingSourceTopicException"), y los topics los crea el servicio que escribe en ellos.
+# Si alerting-service arranca antes de que la analitica haya creado market.analytics, se
+# cae. Aqui no hay script que espere: arranca, falla, y systemd lo reintenta a los 15 s,
+# cuando el topic ya existe. En local eso lo resuelve scripts/start-services.sh esperando
+# a que cada servicio confirme el arranque; es la misma idea con otra herramienta.
+
+[Unit]
+Description=Aggora %i
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=aggora
+Group=aggora
+WorkingDirectory=/opt/aggora
+
+# common.env primero (%i.env puede sobrescribir claves comunes). common.env trae el
+# broker, el Schema Registry y el SASL; el fichero del servicio, solo lo suyo.
+EnvironmentFile=/etc/aggora/common.env
+EnvironmentFile=/etc/aggora/%i.env
+
+# 7 JVMs en una VM de 2 GB: el heap se limita aqui y cada fichero de servicio lo ajusta.
+# Las comillas son obligatorias: sin ellas systemd parte el valor por espacios y solo
+# asignaria -Xms128m a JAVA_OPTS.
+Environment="JAVA_OPTS=-Xms128m -Xmx320m"
+
+# Ojo con $JAVA_OPTS sin llaves: systemd lo parte por espacios (con ${JAVA_OPTS} seria un
+# solo argumento, con los espacios dentro, y la JVM no arrancaria).
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/aggora/jars/%i-spring-0.1.0-SNAPSHOT.jar
+
+# Sonda de salud en el arranque (capitulos 18 y 21): un motor de Kafka Streams atascado
+# en ERROR NO se cae; el proceso sigue vivo y sin sonda nadie se entera. Los servicios con
+# servidor web traen HEALTH_URL en su fichero de entorno y aqui se espera a que responda;
+# si esta en DOWN, el arranque se da por fallido y Restart=always vuelve a intentarlo. Los
+# servicios sin servidor web no traen HEALTH_URL y este paso no hace nada.
+# ($$ es un $ literal para systemd: la expansion la hace el shell, con el entorno que ya
+# le ha pasado systemd desde los EnvironmentFile.)
+ExecStartPost=/bin/sh -c 'if [ -n "$${HEALTH_URL}" ]; then for i in $(seq 1 20); do /usr/bin/curl -fsS "$${HEALTH_URL}" >/dev/null && exit 0; sleep 3; done; echo "sonda de salud en DOWN: $${HEALTH_URL}"; exit 1; fi'
+TimeoutStartSec=120
+
+# El reinicio que convierte la carrera de topics (y un arranque fallido) en un reintento.
+Restart=always
+RestartSec=15
+
+# Los clientes de Kafka abren muchos descriptores entre particiones y conexiones.
+LimitNOFILE=65536
+
+# Logs a journald (es el valor por defecto, pero se deja escrito).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aggora-%i
+
+[Install]
+WantedBy=multi-user.target

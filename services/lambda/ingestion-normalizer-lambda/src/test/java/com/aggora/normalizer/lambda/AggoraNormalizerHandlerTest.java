@@ -14,6 +14,7 @@ import com.aggora.avro.Exchange;
 import com.aggora.avro.Tick;
 import com.aggora.avro.TickSource;
 import com.aggora.avro.canonical.CanonicalTick;
+import com.aggora.avro.reference.FxRate;
 
 import com.amazonaws.services.lambda.runtime.events.KafkaEvent;
 
@@ -55,6 +56,20 @@ class AggoraNormalizerHandlerTest {
         assertThat(canonico.getOriginPartition()).isEqualTo(3);
         assertThat(canonico.getOriginOffset()).isEqualTo(42L);
         assertThat(sink.dltMotivos).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Un par de divisas se publica tambien como referencia, y una accion no")
+    void los_pares_de_divisas_van_al_topic_compactado() {
+        handler.handleRequest(lote(
+                registro("AAPL", tick("AAPL", "100.2500")),
+                registro("EUR/USD", tickFx("EUR/USD", "1.0875"))), null);
+
+        // Las dos van al canonico, pero solo el par genera dato de referencia.
+        assertThat(sink.canonicos).extracting(CanonicalTick::getSymbol).containsExactly("AAPL", "EUR/USD");
+        assertThat(sink.tiposDeCambio).hasSize(1);
+        assertThat(sink.tiposDeCambio.get(0).getPair()).isEqualTo("EUR/USD");
+        assertThat(sink.tiposDeCambio.get(0).getRate()).isEqualByComparingTo("1.0875");
     }
 
     @Test
@@ -113,6 +128,7 @@ class AggoraNormalizerHandlerTest {
     private static final class SinkFalso implements AggoraNormalizerHandler.TickSink {
 
         private final List<CanonicalTick> canonicos = new ArrayList<>();
+        private final List<FxRate> tiposDeCambio = new ArrayList<>();
         private final List<String> dltClaves = new ArrayList<>();
         private final List<byte[]> dltValores = new ArrayList<>();
         private final List<String> dltMotivos = new ArrayList<>();
@@ -120,6 +136,11 @@ class AggoraNormalizerHandlerTest {
         @Override
         public void publicar(String key, CanonicalTick tick) {
             canonicos.add(tick);
+        }
+
+        @Override
+        public void publicarFx(String pair, FxRate rate) {
+            tiposDeCambio.add(rate);
         }
 
         @Override
@@ -157,6 +178,22 @@ class AggoraNormalizerHandlerTest {
 
     private static String base64(byte[] bytes) {
         return Base64.getEncoder().encodeToString(bytes);
+    }
+
+    /** Un par de divisas, que ademas de ir al canonico genera dato de referencia. */
+    private static Tick tickFx(String symbol, String precio) {
+        return Tick.newBuilder()
+                .setEventId(UUID.randomUUID().toString())
+                .setSymbol(symbol)
+                .setAssetClass(AssetClass.FX)
+                .setExchange(Exchange.FX)
+                .setCurrency("USD")
+                .setPrice(new BigDecimal(precio))
+                .setSize(100)
+                .setEventTime(Instant.now())
+                .setSource(TickSource.SYNTHETIC)
+                .setSequence(1L)
+                .build();
     }
 
     private static Tick tick(String symbol, String precio) {

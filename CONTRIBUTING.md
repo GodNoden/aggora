@@ -730,6 +730,30 @@ mvn -q -pl spring/ingestion-normalizer test -Dtest=SchemaEvolutionTest
     falla con codigo 1 si no llega ningun tick. Medido: 180 ticks, 10 posiciones y 30 alertas
     (Spring) / 11 (Quarkus) en 12 s con los dos stacks en marcha.
 
+- ✅ **Fase 10** — despliegue a AWS, en artefactos validados (no desplegado: no hay cuenta).
+  - `deploy/README.md` es el runbook (en ingles); `deploy/terraform/` es la IaC; `deploy/systemd/aggora@.service`
+    es **una** unidad plantilla para los siete servicios; `deploy/user-data.sh` es el arranque de la VM;
+    `deploy/docker-compose.vm.yml` es Postgres + Prometheus + Grafana + kafka-exporter (sin Kafka ni SR:
+    son gestionados); `deploy/collect-artifacts.sh` compila y junta los jars.
+  - `services/lambda/` es el **tercer arbol**: el normalizer sin estado como funcion de Lambda.
+  - Decisiones: el broker y los topics se crean **a mano** (Terraform no debe poder crear lo que
+    factura por hora); los secretos van a SSM `SecureString`; Lambda fuera de la VPC (broker publico
+    con SASL); `Restart=always` de systemd en vez del script de arranque con esperas.
+  - Verificacion (la buena de Terraform monta la **raiz** del repo, no solo `deploy/terraform`):
+    ```bash
+    cd /workspaces/aggora/services && mvn -pl lambda/ingestion-normalizer-lambda -am package
+    cd /workspaces/aggora
+    docker run --rm -v "$PWD":/w -w /w/deploy/terraform hashicorp/terraform:1.9 fmt -check -recursive
+    docker run --rm -v "$PWD":/w -w /w/deploy/terraform hashicorp/terraform:1.9 init -backend=false -input=false
+    docker run --rm -v "$PWD":/w -w /w/deploy/terraform hashicorp/terraform:1.9 validate
+    docker compose -f deploy/docker-compose.vm.yml config -q
+    ```
+    Resultado: 5 tests de la Lambda en verde, `Success! The configuration is valid.` y compose en 0.
+  - Al reconciliar el handler con la IaC aparecieron **tres desajustes** que ninguna de las dos partes
+    veia por separado: los nombres de las variables de entorno, la referencia de divisas
+    (`market.fx.reference`, que el pipeline desplegado necesita para el join) y el jar que se subia
+    (el fino en vez del gordo del shade). Los tres arreglados; el detalle esta en `docs/decisions.md`.
+
 ## Decisiones tomadas (link a docs/decisions.md para el detalle)
 - Kafka en modo KRaft (sin Zookeeper) — más simple, es lo moderno.
 - Imagen `apache/kafka` y no `confluentinc/cp-kafka` — Apache puro,
@@ -749,6 +773,10 @@ mvn -q -pl spring/ingestion-normalizer test -Dtest=SchemaEvolutionTest
 - No usar `host.docker.internal` (no es portable fuera de Docker Desktop) salvo para el scrape de
   Prometheus, que es el unico caso donde no hay alternativa (esta documentado en `decisions.md`).
 - No compartir `group.id` entre un servicio de trabajo y el gateway: un grupo reparte, no copia.
+- No meter el broker gestionado (ni los topics) en Terraform: lo que factura por hora y guarda
+  estado se crea a mano y se documenta, no se describe como algo que se puede `destroy`.
+- No versionar nunca `deploy/artifacts/*.jar` (son artefactos de build) ni el estado de Terraform
+  (lleva las credenciales de Kafka dentro).
 - No cambiar versiones de imágenes "porque son más nuevas" sin avisar.
 - No asumir que el usuario conoce Kafka Streams, Schema Registry,
   transacciones, etc. Explicar antes de usar.
