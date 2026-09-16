@@ -728,3 +728,26 @@ de `SPRING_VS_QUARKUS.md` son de una máquina en reposo, y en un servidor compar
 estrecha.
 
 Y para pararlo, `bash scripts/stop-quarkus-stack.sh` (el de Spring se para con `stop-services.sh`).
+
+## El devcontainer con Docker dentro (y los dos tropiezos que aparecieron)
+
+El devcontainer ya trae el socket y el CLI de Docker, que era lo que faltaba para dos cosas: los
+tests de integración con Testcontainers y la compilación del nativo. Se añadió con la feature
+estándar `ghcr.io/devcontainers/features/docker-outside-of-docker`, porque hacían falta **las dos**
+(el socket para Testcontainers y el CLI porque el plugin de Quarkus lo invoca).
+
+Al reconstruirlo aparecieron dos cosas que conviene tener escritas:
+
+| Tropiezo | Detalle |
+|---|---|
+| **El nombre del devcontainer cambia al reconstruirlo** | De `eager_allen` pasó a `charming_spence`. Todos los comandos de este documento que decían `docker exec -u vscode eager_allen` ahora usan una variable, `DEVCONTAINER=$(docker ps --format '{{.Names}}' \| grep -v aggora \| head -1)` |
+| **`target/` quedó de `root`** | Por compilar con Maven desde el host (en un contenedor de Maven, que corre como root) al intentar el nativo. El devcontainer fallaba con `...jar is read-only`, que es **la misma trampa que ya está documentada en la Fase 1**, esta vez por la puerta de atrás. Se arregla con un `chown -R vscode:vscode` y la regla de siempre: compilar con `docker exec -u vscode` |
+
+Y el estado de los tests de integración, que es lo honesto: **llegaron a ejecutarse** (los unitarios
+del motor de matching dieron 4 en verde y el `*IT` intentó levantar los contenedores), pero
+**Testcontainers sigue sin encontrar el Docker del devcontainer**: el socket está montado como
+enlace (`/var/run/docker.sock -> /var/run/docker-host.sock`) y ni con `DOCKER_HOST` apuntando al
+destino ni con `TESTCONTAINERS_HOST_OVERRIDE` se resolvió. El siguiente paso es leer la lista de
+"Attempted configurations" del informe de failsafe, que dice **por qué** falla cada estrategia, y
+ajustar desde ahí. En CI no hace falta nada de esto: el runner tiene Docker nativo y los tests
+corren sin tocar nada.

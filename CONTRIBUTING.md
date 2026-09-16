@@ -479,7 +479,7 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server loc
 
 # Ticks invalidos descartados con su motivo (arrancar el simulador con
 # AGGORA_INVALIDTICKEVERYN=500)
-docker exec -u vscode eager_allen bash -lc 'grep "DLT\]" /tmp/norm3.log | tail -3'
+docker exec -u vscode "$DEVCONTAINER" bash -lc 'grep "DLT\]" /tmp/norm3.log | tail -3'
 docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic market.ticks.raw.DLT
 
@@ -487,7 +487,7 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
 # que el motor SIGUE procesando ordenes: la particion no se bloquea
 docker exec aggora-kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic orders.incoming.DLT
-docker exec -u vscode eager_allen bash -lc 'grep "matching\]" /tmp/matching4.log | tail -2'
+docker exec -u vscode "$DEVCONTAINER" bash -lc 'grep "matching\]" /tmp/matching4.log | tail -2'
 
 # Reintentos de la auditoria: parar Postgres y ver como los eventos esperan
 docker stop aggora-postgres && sleep 40
@@ -499,7 +499,7 @@ docker start aggora-postgres
 ### Verificar la Fase 5 (cartera, alertas y auditoria)
 ```bash
 # Alertas (los tres tipos) y feed parado
-docker exec -u vscode eager_allen bash -lc 'grep "alerta\]" /tmp/alerting.log | tail -5'
+docker exec -u vscode "$DEVCONTAINER" bash -lc 'grep "alerta\]" /tmp/alerting.log | tail -5'
 
 # Auditoria: lo que hay guardado en Postgres, en SQL y legible
 docker exec aggora-postgres psql -U aggora -d aggora \
@@ -593,6 +593,19 @@ docker exec aggora-kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-
 pkill -TERM -f "quarkus-app/quarkus-run.jar"
 bash scripts/start-services.sh
 ```
+
+### Nota sobre el nombre del devcontainer
+El nombre del devcontainer cambia cada vez que se reconstruye (VS Code le pone uno nuevo, tipo
+`charming_spence`), asi que los comandos de abajo usan una variable:
+
+```bash
+DEVCONTAINER=$(docker ps --format '{{.Names}}' | grep -v aggora | head -1)
+```
+
+Y ojo con la otra trampa, que ya nos mordio una vez: **si compilas con Maven desde fuera del
+devcontainer (por ejemplo en un contenedor de Maven con el socket montado), los ficheros de
+`target/` quedan de `root`** y luego el devcontainer falla con `...jar is read-only`. Se arregla con
+`docker exec -u root "$DEVCONTAINER" chown -R vscode:vscode /workspaces/aggora/services`.
 
 ### Verificar la Fase 8 (el port de la cartera)
 ```bash
