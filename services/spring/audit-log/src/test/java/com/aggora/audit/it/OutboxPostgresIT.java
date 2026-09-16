@@ -12,6 +12,7 @@ import com.aggora.avro.alerts.Severity;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
@@ -47,6 +48,9 @@ class OutboxPostgresIT {
 
     private static AuditStore store;
 
+    /** El mismo JdbcTemplate que usa el store, para poder limpiar entre tests. */
+    private static JdbcTemplate jdbc;
+
     @BeforeAll
     static void prepararEsquema() throws Exception {
         PGSimpleDataSource ds = new PGSimpleDataSource();
@@ -59,7 +63,21 @@ class OutboxPostgresIT {
         try (var con = ((DataSource) ds).getConnection()) {
             ScriptUtils.executeSqlScript(con, new ClassPathResource("schema.sql"));
         }
-        store = new AuditStore(new JdbcTemplate(ds));
+        jdbc = new JdbcTemplate(ds);
+        store = new AuditStore(jdbc);
+    }
+
+    /**
+     * Los dos tests comparten contenedor Y tablas, y los dos cuentan filas de forma GLOBAL: sin
+     * limpiar, el que corre segundo ve las del primero y la cuenta depende del orden en que JUnit
+     * decida ejecutarlos. El CI lo destapo (esperaba 2 y conto 3: una del test anterior y dos
+     * suyas). Limpiar antes de cada test es lo que hace que un "2" signifique dos de verdad.
+     *
+     * <p>Se limpian las dos tablas: el evento auditado y el recado de la outbox.
+     */
+    @BeforeEach
+    void limpiar() {
+        jdbc.execute("TRUNCATE TABLE audit_events, audit_outbox");
     }
 
     @Test
