@@ -864,3 +864,37 @@ la Fase 9 pide documentar. El arreglo es declarar las clases para reflexión (un
 `@RegisterForReflection` sobre los serializadores de Confluent, o el `reflection-config.json`
 equivalente) y volver a compilar. **No se ha hecho todavía**, así que el arranque y el RSS del
 binario **no están medidos**: no tiene sentido apuntar un número de un proceso que muere al arrancar.
+
+### El nativo, funcionando: 24 milisegundos
+
+Arreglado el tema de la reflexión **de una vez y no clase a clase**: en lugar de ir añadiendo
+`@RegisterForReflection` por cada error (y cada error cuesta una compilación de cuatro minutos), se
+**genera el fichero de reflexión desde los propios jars**:
+
+```bash
+unzip -l kafka-avro-serializer-8.3.1.jar kafka-schema-serializer-8.3.1.jar kafka-schema-registry-client-8.3.1.jar \
+  | grep -oE "io/confluent/kafka/[A-Za-z0-9/$]*\.class" | sed "s|/|.|g; s|\.class$||" | grep -v "\\$" | sort -u
+```
+
+Salen **169 clases**, que van a `src/main/resources/META-INF/native-image/<grupo>/<artefacto>/reflect-config.json`
+(la ruta que GraalVM lee sola, sin pasar nada por línea de comandos).
+
+Y el resultado, que es lo que se venía a buscar:
+
+```
+ingestion-normalizer 0.1.0-SNAPSHOT native (powered by Quarkus 3.39.3) started in 0.024s.
+```
+
+| Arranque | |
+|---|---|
+| Spring Boot (JVM) | 2,099 s |
+| Quarkus (JVM) | 1,123 s |
+| **Quarkus (binario nativo)** | **0,024 s** |
+
+**Cincuenta veces más rápido que la JVM de Quarkus y noventa veces más rápido que Spring**, y el
+binario **consume y publica** (los `[canonico]` en el log, con Avro y el Schema Registry dentro de
+una imagen nativa). El binario pesa 91,7 MB.
+
+Y el resumen de la familia de tropiezos del nativo, que es lo que pide documentar la Fase 9:
+BouncyCastle (TLS), Brotli (compresión), commons-compress + xz (API nueva) y la reflexión de los
+serializadores. **En una imagen nativa no existe lo "opcional en tiempo de ejecución".**
