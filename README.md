@@ -191,6 +191,7 @@ README.md                  project front page
 SPEC.md                    the original spec (immutable)
 CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
 docs/kafka-101.md          the Kafka concepts in plain language (21 chapters)
+docs/curso-aggora.md       the guided course: domain, Kafka, phase by phase, file by file, labs and interview questions (Spanish)
 docs/decisions.md          decision log and the deliberate deviations from the spec
 docs/schema-evolution-lab.md  the schema evolution lab manual
 docs/throughput-lab.md     the throughput stress test: method, numbers and what it uncovered
@@ -224,6 +225,9 @@ instead of argued. See [SPRING_VS_QUARKUS.md](SPRING_VS_QUARKUS.md).
 The deep-dive docs are written in **Spanish** — they are the author's learning material, and
 the reason the project exists. The README and the whole commit history are in English.
 
+- **[`docs/curso-aggora.md`](docs/curso-aggora.md)** — the course: the market domain and Kafka
+  from zero, then the project phase by phase and file by file, with the problems, the labs and
+  the interview questions. Start here if you are learning; use the rest as reference.
 - **[`docs/kafka-101.md`](docs/kafka-101.md)** — the concepts: what a topic, a partition, an
   offset, a rebalance or a transaction is, explained with examples from this project and
   assuming no prior knowledge.
