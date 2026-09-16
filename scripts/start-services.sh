@@ -28,6 +28,8 @@ SERVICES=(
   "portfolio-risk:Started PortfolioRiskApplication"
   "alerting-service:Started AlertingServiceApplication"
   "audit-log:Started AuditLogApplication"
+  # El gateway va el ultimo: necesita que los topics de origen ya existan.
+  "gateway-ws:Started GatewayWsApplication"
 )
 SERVICES_DIR=/workspaces/aggora/services/spring
 LOG_DIR=${AGGORA_LOG_DIR:-/tmp}

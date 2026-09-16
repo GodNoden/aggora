@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Aggora en vivo</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; padding: 18px; background: #0e1116; color: #d7dde5;
+           font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    h1 { font-size: 17px; margin: 0 0 4px; }
+    .sub { color: #7d8794; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; color: #7d8794; font-weight: 500; border-bottom: 1px solid #232a34;
+         padding: 4px 6px; }
+    td { padding: 3px 6px; border-bottom: 1px solid #171d25; }
+    .up { color: #4ade80; } .down { color: #f87171; }
+    .box { border: 1px solid #232a34; border-radius: 6px; padding: 10px; }
+    .box h2 { font-size: 13px; margin: 0 0 8px; color: #9aa5b1; }
+    #alertas div { padding: 3px 0; border-bottom: 1px solid #171d25; }
+    .CRITICAL { color: #f87171; } .WARNING { color: #fbbf24; } .INFO { color: #60a5fa; }
+    #estado { float: right; font-size: 12px; }
+    .ok { color: #4ade80; } .ko { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>Aggora — datos de mercado en vivo <span id="estado" class="ko">conectando…</span></h1>
+  <div class="sub">Los eventos llegan por WebSocket desde <code>market.ticks.canonical</code>,
+    <code>portfolio.updates</code> y <code>alerts.raised</code>.</div>
+
+  <div class="grid">
+    <div class="box">
+      <h2>Precios (último tick por símbolo)</h2>
+      <table><thead><tr><th>símbolo</th><th>precio</th><th>var.</th><th>tamaño</th><th>fuente</th></tr></thead>
+        <tbody id="precios"></tbody></table>
+    </div>
+    <div>
+      <div class="box" style="margin-bottom:18px">
+        <h2>Cartera (posiciones)</h2>
+        <table><thead><tr><th>cuenta</th><th>símbolo</th><th>cant.</th><th>coste</th><th>P&amp;L</th></tr></thead>
+          <tbody id="cartera"></tbody></table>
+      </div>
+      <div class="box">
+        <h2>Alertas</h2>
+        <div id="alertas"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const precios = new Map(), cartera = new Map(), filas = (id, html) => document.getElementById(id).innerHTML = html;
+  const num = v => Number(v).toLocaleString('es-ES', { maximumFractionDigits: 4 });
+  let anterior = new Map();
+
+  function pintarPrecios() {
+    const orden = [...precios.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    filas('precios', orden.map(([s, t]) => {
+      const previo = anterior.get(s);
+      const clase = previo === undefined ? '' : (Number(t.price) >= previo ? 'up' : 'down');
+      const flecha = previo === undefined ? '' : (Number(t.price) >= previo ? '▲' : '▼');
+      return `<tr><td>${s}</td><td class="${clase}">${num(t.price)} ${flecha}</td>
+              <td>${t.currency}</td><td>${t.size}</td><td>${t.source}</td></tr>`;
+    }).join(''));
+    for (const [s, t] of precios) anterior.set(s, Number(t.price));
+  }
+
+  function pintarCartera() {
+    const orden = [...cartera.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    filas('cartera', orden.map(([k, p]) =>
+      `<tr><td>${p.account}</td><td>${p.symbol}${p.marginBreach ? ' ⚠' : ''}</td>
+       <td>${p.quantity}</td><td>${num(p.averageCost)}</td><td class="${Number(p.realizedPnl) >= 0 ? 'up' : 'down'}">${num(p.realizedPnl)}</td></tr>`
+    ).join(''));
+  }
+
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { const e = document.getElementById('estado'); e.textContent = 'conectado'; e.className = 'ok'; };
+  ws.onclose = () => { const e = document.getElementById('estado'); e.textContent = 'desconectado'; e.className = 'ko'; };
+  ws.onmessage = ({ data }) => {
+    const ev = JSON.parse(data);
+    if (ev.kind === 'tick') { precios.set(ev.symbol, ev); pintarPrecios(); }
+    else if (ev.kind === 'position') { cartera.set(`${ev.account}|${ev.symbol}`, ev); pintarCartera(); }
+    else if (ev.kind === 'alert') {
+      const caja = document.getElementById('alertas');
+      caja.insertAdjacentHTML('afterbegin',
+        `<div class="${ev.severity}">[${ev.type}] ${ev.subject}: ${ev.detail} (${num(ev.value)})</div>`);
+      while (caja.children.length > 12) caja.lastChild.remove();
+    }
+  };
+</script>
+</body>
+</html>

@@ -38,6 +38,7 @@
     <module>portfolio-risk</module>
     <module>alerting-service</module>
     <module>audit-log</module>
+    <module>gateway-ws</module>
   </modules>
 
   <properties>

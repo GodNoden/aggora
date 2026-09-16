@@ -1,0 +1,29 @@
+server:
+  # Un puerto propio: el 8080 es del simulador y el 8085 de la analitica.
+  port: 8089
+
+spring:
+  application:
+    name: gateway-ws
+
+  kafka:
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    consumer:
+      # Grupo propio: este servicio no compite con nadie, se suscribe a los MISMOS topics que ya
+      # leen los demas y recibe su copia (es un consumidor de fan-out, no de trabajo).
+      group-id: gateway-ws
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      properties:
+        specific.avro.reader: true
+        schema.registry.url: http://schema-registry:8081
+    properties:
+      schema.registry.url: http://schema-registry:8081
+
+aggora:
+  schema-registry-url: http://schema-registry:8081
+  topics:
+    ticks-canonical: market.ticks.canonical
+    portfolio-updates: portfolio.updates
+    alerts: alerts.raised

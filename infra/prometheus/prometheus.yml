@@ -32,9 +32,11 @@ scrape_configs:
   - job_name: aggora-apps
     metrics_path: /actuator/prometheus
     static_configs:
-      # market-data-simulator (HTTP 8080) y analytics-streams (HTTP 8085): los dos unicos
-      # servicios con servidor web, y por tanto los dos unicos que exponen metricas. A los
-      # otros cinco habria que anadirles spring-boot-starter-web solo para mirarles la
-      # memoria, y eso cambiaria justo lo que se quiere medir.
+      # Los tres servicios con servidor web y, por tanto, con /actuator/prometheus:
+      # market-data-simulator (8080), analytics-streams (8085) y gateway-ws (8089, que tiene
+      # servidor porque un WebSocket necesita uno). A los otros habria que anadirles
+      # spring-boot-starter-web solo para mirarles la memoria, y eso cambiaria justo lo que
+      # se quiere medir.
       - targets: ["host.docker.internal:8080"]
       - targets: ["host.docker.internal:8085"]
+      - targets: ["host.docker.internal:8089"]
