@@ -1082,8 +1082,8 @@ con el mismo sintoma: `read_uncommitted` veia solo `["ASML"]` y no la abortada. 
 fue un parche mal diagnosticado (leer esperando los dos registros), y volvio a fallar porque el
 problema no era *cuando* se leia, sino que **el registro abortado no estaba en el log**.
 
-La causa, reproducida contra el cluster local con un programa suelto que habla Kafka directamente
-(`/tmp/PruebaTxn2.java`, sin Testcontainers, que en este devcontainer no arranca):
+La causa, reproducida contra el cluster local con `scripts/ExactlyOnceRaceCheck.java`, un programa
+que habla Kafka directamente y no necesita Testcontainers (que en este devcontainer no arranca):
 
 - `send()` es asincrono y `abortTransaction()` **descarta lo que el hilo emisor no haya mandado**.
   Secuencia "`send` y abortar inmediatamente": **8 fallos de 8** intentos. No era inestable: era
@@ -1097,6 +1097,15 @@ El test ademas gana una asercion que antes no tenia: si la abortada no llega al 
 exactamente eso, en vez de fallar en la asercion final con un mensaje que parecia un problema de
 aislamiento. **Un test que da por hecho el estado que dice comprobar es peor que no tenerlo**, y esto
 es lo que justifica tener el cluster local a mano cuando el runner no se puede reproducir.
+
+Como se ejecuta el diagnostico (dentro del devcontainer, con el cluster local levantado):
+
+```bash
+cd services
+mvn -q -pl spring/order-matching-engine dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
+cd ..
+java -cp "$(cat /tmp/cp.txt)" scripts/ExactlyOnceRaceCheck.java
+```
 
 Nota de entorno: Testcontainers sigue sin funcionar en este devcontainer (el socket de Docker
 Desktop no es el del motor), asi que este IT se sigue verificando en CI. Lo que se pudo verificar

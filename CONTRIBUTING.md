@@ -340,6 +340,12 @@
   `OutboxPostgresIT` contra un Postgres real— más el **workflow de CI** (`.github/workflows/ci.yml`):
   unitarios en cada push, integración en cada PR. **No se han podido ejecutar aquí**: el devcontainer
   no tiene Docker, igual que con el nativo. Compilan y corren en el CI.
+  - Ojo con `ExactlyOnceKafkaIT`: falló en CI dos veces y **el primer diagnóstico fue falso** ("es una
+    carrera al leer"). La causa real es que `send()` es asíncrono y `abortTransaction()` descarta lo
+    que el hilo emisor no ha mandado, así que el registro abortado no llegaba a existir. El test ahora
+    **comprueba** que está en el log (`read_uncommitted` con la transacción abierta) antes de abortar.
+    Medido con `scripts/ExactlyOnceRaceCheck.java` contra el clúster local (no necesita Testcontainers):
+    secuencia vieja **8 fallos de 8**, secuencia nueva **0 de 8**. Detalle en `docs/decisions.md`.
 - ✅ **Los dos stacks a la vez** (hecho): `bash scripts/start-quarkus-stack.sh` levanta la
   implementación de Quarkus **en paralelo** con la de Spring, misma entrada y salidas propias
   (`market.analytics.q`, `portfolio.updates.q`, …), cada motor de Streams con su `application-id` y
