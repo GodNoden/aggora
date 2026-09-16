@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aggora</groupId>
+    <artifactId>aggora-lambda-services</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ingestion-normalizer-lambda</artifactId>
+  <name>ingestion-normalizer-lambda</name>
+  <!--
+    El artefacto que se sube a Lambda es el jar GORDO:
+
+        target/ingestion-normalizer-lambda-0.1.0-SNAPSHOT-shaded.jar
+
+    (el `-shaded` lo anade maven-shade-plugin; el jar sin sufijo es el fino, que NO vale
+    porque Lambda no tiene classpath con las dependencias).
+  -->
+  <description>El normalizer de Aggora como funcion AWS Lambda: el event source mapping de Kafka invoca handleRequest con un lote</description>
+
+  <dependencies>
+    <!-- El handler: RequestHandler y Context. -->
+    <dependency>
+      <groupId>com.amazonaws</groupId>
+      <artifactId>aws-lambda-java-core</artifactId>
+      <version>1.2.3</version>
+    </dependency>
+    <!-- De aqui sale com.amazonaws.services.lambda.runtime.events.KafkaEvent: el lote que
+         entrega el event source mapping, con el value en base64. -->
+    <dependency>
+      <groupId>com.amazonaws</groupId>
+      <artifactId>aws-lambda-java-events</artifactId>
+      <version>3.16.1</version>
+    </dependency>
+
+    <!-- El productor idempotente que publica en el canonico y en el DLT. -->
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+      <version>${kafka.version}</version>
+    </dependency>
+    <!-- Los MISMOS serializadores de Confluent que los otros dos arboles: el
+         KafkaAvroDeserializer especifico y el KafkaAvroSerializer del jar gordo. -->
+    <dependency>
+      <groupId>io.confluent</groupId>
+      <artifactId>kafka-avro-serializer</artifactId>
+      <version>${confluent.version}</version>
+    </dependency>
+
+    <!-- CloudWatch captura stdout, asi que slf4j-simple (que escribe ahi) es todo el
+         sistema de logs que hace falta: en Lambda no hay WildFly ni LogManager que cargar. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+
+    <!-- Tests: sin broker y sin Docker, el handler se prueba con un sink de mentira y un
+         Schema Registry "mock://" en memoria. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>${assertj.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Genera las clases Java a partir de los MISMOS .avsc de services/schemas. -->
+      <plugin>
+        <groupId>org.apache.avro</groupId>
+        <artifactId>avro-maven-plugin</artifactId>
+        <version>${avro.version}</version>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>schema</goal>
+            </goals>
+            <configuration>
+              <sourceDirectory>${project.basedir}/../../schemas</sourceDirectory>
+              <outputDirectory>${project.build.directory}/generated-sources/avro</outputDirectory>
+              <stringType>String</stringType>
+              <enableDecimalLogicalType>true</enableDecimalLogicalType>
+              <dateTimeLogicalTypeImplementation>JSR310</dateTimeLogicalTypeImplementation>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven-compiler-plugin.version}</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>${maven-jar-plugin.version}</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven-surefire-plugin.version}</version>
+        <configuration>
+          <systemPropertyVariables>
+            <!-- Avro 1.12 ENCIENDE el validador de clases: sin esta propiedad, serializar
+                 com.aggora.avro.Tick falla con "This class is not trusted to be included in
+                 Avro schemas". En Quarkus lo dice quarkus.avro.trusted-packages, que aqui no
+                 existe. OJO: aqui no hay WildFly, asi que NO se pone el LogManager de JBoss. -->
+            <org.apache.avro.SERIALIZABLE_PACKAGES>com.aggora.avro</org.apache.avro.SERIALIZABLE_PACKAGES>
+          </systemPropertyVariables>
+          <environmentVariables>
+            <!-- El handler lee la configuracion de variables de entorno, y los tests no
+                 levantan Schema Registry: con "mock://" el serializador del test y el
+                 deserializador del handler comparten un registry en memoria. -->
+            <SCHEMA_REGISTRY_URL>mock://aggora-lambda-test</SCHEMA_REGISTRY_URL>
+          </environmentVariables>
+        </configuration>
+      </plugin>
+
+      <!-- El paquete de despliegue: un jar gordo con todo lo que necesita la funcion.
+           Va ATTACHED (classifier `shaded`) para que el jar fino siga siendo el artefacto
+           principal y no haya duda de cual se sube. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>${maven-shade-plugin.version}</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>shaded</shadedClassifierName>
+              <!-- No se genera dependency-reduced-pom.xml: no aporta nada a un jar de
+                   despliegue y ensucia el modulo. -->
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <!-- Firmas de los jars originales: en un jar gordo no valen y hacen
+                         que la JVM lo rechace al leerlo. -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/versions/*/module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <!-- Los META-INF/services de todos los jars se fusionan en vez de
+                     pisarse: es lo que hace que slf4j-simple encuentre su proveedor. -->
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

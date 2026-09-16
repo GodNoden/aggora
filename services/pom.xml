@@ -5,30 +5,33 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    Agregador de services/: las DOS implementaciones de la plataforma.
+    Agregador de services/: las TRES implementaciones de la plataforma.
 
     No hereda de nadie a proposito. Cada implementacion tiene su propio padre:
 
       services/spring/pom.xml   -> hereda de spring-boot-starter-parent
       services/quarkus/pom.xml  -> importa el BOM de Quarkus (Fase 8)
+      services/lambda/pom.xml   -> no hereda de ninguno de los dos: la Lambda solo
+                                   se parece a los otros en el contrato Avro
 
     Si este agregador heredara de Spring, los modulos de Quarkus se traerian el
     dependencyManagement y los plugins de Spring sin pedirlo, y las versiones de
     kafka-clients, Jackson o JUnit las decidiria Spring en vez del BOM de Quarkus.
 
-    Los contratos Avro (services/schemas/*.avsc) son de los dos: cada
+    Los contratos Avro (services/schemas/*.avsc) son de los tres: cada
     implementacion genera sus propias clases a partir de los mismos ficheros, que
-    es lo que hace que las dos versiones hablen el mismo idioma en el topic.
+    es lo que hace que las tres versiones hablen el mismo idioma en el topic.
   -->
   <groupId>com.aggora</groupId>
   <artifactId>aggora-services</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>aggora-services</name>
-  <description>Aggora: la plataforma de mercados en sus dos implementaciones (Spring y Quarkus)</description>
+  <description>Aggora: la plataforma de mercados en sus tres implementaciones (Spring, Quarkus y Lambda)</description>
 
   <modules>
     <module>spring</module>
     <module>quarkus</module>
+    <module>lambda</module>
   </modules>
 </project>

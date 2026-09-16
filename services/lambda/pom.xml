@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Agregador del arbol SERVERLESS (Fase 10): la version AWS Lambda del normalizer.
+
+    No hereda de nadie, igual que services/spring y services/quarkus, a proposito: aqui no
+    manda ni el dependencyManagement de Spring ni el BOM de Quarkus. Una funcion Lambda no es
+    una aplicacion con bucle de consumo: el event source mapping de Kafka hace el polling e
+    invoca la funcion con un lote, asi que el modulo no lleva framework de aplicacion, solo
+    el runtime de Lambda y los clientes de Kafka y Avro.
+
+    El contrato Avro es el mismo (services/schemas/*.avsc): cada arbol genera sus clases de
+    los mismos ficheros, con la misma version del plugin y de los serializadores, que es lo
+    que hace que los tres hablen el mismo idioma en el topic.
+  -->
+  <groupId>com.aggora</groupId>
+  <artifactId>aggora-lambda-services</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>aggora-lambda-services</name>
+  <description>Servicios de Aggora en AWS Lambda (serverless, Fase 10)</description>
+
+  <modules>
+    <module>ingestion-normalizer-lambda</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Las MISMAS versiones que las otras dos implementaciones: los mensajes tienen que
+         ser identicos. La libreria de Confluent no esta en Maven Central: se declara su
+         repositorio mas abajo. -->
+    <confluent.version>8.3.1</confluent.version>
+    <avro.version>1.12.1</avro.version>
+    <kafka.version>4.2.1</kafka.version>
+    <slf4j.version>2.0.18</slf4j.version>
+    <junit.version>6.0.3</junit.version>
+    <assertj.version>3.27.7</assertj.version>
+    <!-- El arbol no hereda de nadie, asi que los plugins no vienen versionados: se fijan a
+         los mismos que usa Spring Boot 4.1.1 para no mezclar dos lineas de plugins. -->
+    <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+    <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
+    <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
+    <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>confluent</id>
+      <name>Confluent Maven Repository</name>
+      <url>https://packages.confluent.io/maven/</url>
+    </repository>
+  </repositories>
+
+</project>
