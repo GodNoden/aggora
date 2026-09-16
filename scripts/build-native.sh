@@ -65,18 +65,15 @@ echo "(la primera vez tarda: se baja la imagen del builder y todas las dependenc
 # Al contenedor de Maven hay que darle TAMBIEN el ejecutable de docker: el plugin de Quarkus lo
 # invoca para arrancar el builder de Mandrel, y sin el falla con
 # "ContainerRuntimeUtil.detectContainerRuntime" (no encuentra ni docker ni podman).
-docker run --rm \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$(readlink -f "$(command -v docker)"):/usr/local/bin/docker" \
-  -v "$ROOT:$ROOT" \
-  -v "$M2:/root/.m2" \
-  -w "$ROOT/services" \
-  "${NATIVE_MAVEN_IMAGE:-maven:3.9-eclipse-temurin-21}" \
-  mvn -pl "quarkus/$SERVICIO" -am package -DskipTests \
-      -Dquarkus.package.type=native \
-      -Dquarkus.native.container-build=true \
-      -Dquarkus.native.builder-image="$BUILDER" \
-      -Dquarkus.native.native-image-xmx=3g
+# Ahora que el devcontainer tiene docker (feature docker-outside-of-docker) y Maven con Java, la
+# compilacion nativa se lanza DIRECTAMENTE aqui: el plugin de Quarkus arranca el contenedor de
+# Mandrel por el socket. Ya no hace falta el contenedor de Maven con el socket montado que se uso
+# mientras el devcontainer no tenia docker.
+cd "$ROOT/services"
+mvn -pl "quarkus/$SERVICIO" -am package -DskipTests \
+    -Dquarkus.package.type=native \
+    -Dquarkus.native.container-build=true \
+    -Dquarkus.native.native-image-xmx=3g
 
 echo
 echo "Binario:"

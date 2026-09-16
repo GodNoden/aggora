@@ -15,6 +15,13 @@
       //     (sin el: "ContainerRuntimeUtil.detectContainerRuntime: no docker").
       "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
     },
+    // Que la ruta del proyecto sea LA MISMA dentro y fuera del contenedor. No es capricho: al
+    // compilar el binario nativo, el plugin de Quarkus arranca un contenedor de Mandrel por el
+    // socket y le monta el proyecto; si dentro es /workspaces/aggora y en el host es
+    // /home/noei/aggora, el montaje apunta a una ruta que no existe y el nativo falla.
+    "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+    "workspaceFolder": "${localWorkspaceFolder}",
+
     // El devcontainer se une a aggora-net, para hablar con Kafka por NOMBRE (nunca localhost).
     // El acceso a Docker lo da la feature docker-outside-of-docker de arriba.
     // OJO: eso da al contenedor control sobre el Docker del host. Es comodo en la maquina de uno y

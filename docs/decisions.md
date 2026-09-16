@@ -751,3 +751,26 @@ destino ni con `TESTCONTAINERS_HOST_OVERRIDE` se resolvió. El siguiente paso es
 "Attempted configurations" del informe de failsafe, que dice **por qué** falla cada estrategia, y
 ajustar desde ahí. En CI no hace falta nada de esto: el runner tiene Docker nativo y los tests
 corren sin tocar nada.
+
+### El nativo y la ruta del proyecto (el ultimo tropiezo, y el arreglo)
+
+Con el devcontainer ya con Docker, la compilación del nativo **avanzó de verdad**: pasó de fallar al
+detectar el contenedor a llegar a `NativeImageBuildRunner.build`, o sea que el plugin arrancó el
+contenedor de Mandrel. Y falló ahí, al montar el proyecto, por una razón que solo aparece con
+Docker-fuera-de-Docker:
+
+> dentro del devcontainer el proyecto está en `/workspaces/aggora`, y en el host está en
+> `/home/noei/aggora`. El plugin le pasa al contenedor de Mandrel la ruta **de dentro**, y esa ruta
+> **no existe en el host**, que es quien monta los volúmenes.
+
+El arreglo son dos líneas en `.devcontainer/devcontainer.json`, para que la ruta sea la misma a los
+dos lados:
+
+```json
+"workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+"workspaceFolder": "${localWorkspaceFolder}"
+```
+
+Requiere **otra reconstrucción** del contenedor (y el nombre volverá a cambiar). Es el mismo
+problema que apareció al compilar el nativo desde un contenedor de Maven con el socket montado, y se
+resolvió igual: montando el repo en la misma ruta.
