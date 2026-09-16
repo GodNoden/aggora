@@ -1,9 +1,9 @@
 # Integración continua de Aggora.
 #
-# La separación es la de siempre y es la importante: los tests UNITARIOS corren en cada push (tardan
-# un segundo y no necesitan nada), y los de INTEGRACIÓN -los que levantan Kafka, el Schema Registry
-# y Postgres con Testcontainers- solo en los pull requests y en las ejecuciones manuales, porque
-# tardan minutos y arrancan contenedores.
+# La separación es la de siempre: los tests UNITARIOS corren primero (tardan un segundo y no
+# necesitan nada) y los de INTEGRACIÓN después, que son los que levantan Kafka, el Schema Registry y
+# Postgres con Testcontainers y tardan minutos. Son dos jobs y no uno para que el de unitarios de la
+# señal rápido aunque el de integración tarde o falle.
 #
 # Ojo con una cosa de este proyecto: aquí conviven DOS implementaciones (Spring y Quarkus) y las dos
 # se compilan y se prueban. El job `unit` construye el árbol entero (services/pom.xml es el
@@ -21,9 +21,9 @@ jobs:
     name: Unitarios (Spring + Quarkus)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -37,12 +37,13 @@ jobs:
   integration:
     name: Integración (Testcontainers)
     runs-on: ubuntu-latest
-    # Solo en pull requests y a mano: son minutos y arrancan contenedores de Kafka y Postgres.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    # Corre en cada push, en cada PR y a mano. Al principio lo condicione a los pull requests y
+    # el job salia "skipped" en cada push: en un repo donde se empuja directo a main, eso es no
+    # ejecutarlo NUNCA. Mejor cinco minutos de contenedores en cada push que un job decorativo.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
