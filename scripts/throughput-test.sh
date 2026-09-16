@@ -44,6 +44,9 @@ CP_FILE=/tmp/aggora-throughput-cp.txt
 CLASSES=/workspaces/aggora/services/spring/order-matching-engine/target/classes
 SIMULADOR=services/spring/market-data-simulator
 RESULTADOS=/tmp/aggora-throughput.tsv
+# El mismo limite de heap que los scripts de arranque: al rearrancar el simulador se le pasa, y sin
+# declararlo aqui el trap fallaba con "unbound variable" y dejaba el simulador parado.
+SPRING_JAVA_OPTS=${SPRING_JAVA_OPTS:--Xms128m -Xmx384m}
 DTOPE_DRENAJE=${DTOPE_DRENAJE:-120}
 
 RAW=market.ticks.raw
