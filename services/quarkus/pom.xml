@@ -115,6 +115,32 @@
   </repositories>
 
   <build>
+    <plugins>
+      <!-- Failsafe, igual que en el arbol de Spring: `mvn test` es el bucle rapido (surefire,
+           *Test) y `mvn verify` es el que levanta contenedores (failsafe, *IT). Tiene que ir en
+           <plugins> y no en <pluginManagement>: pluginManagement solo configura el plugin, no lo
+           activa, y los *IT de este arbol NO SE EJECUTABAN NUNCA (surefire los ignora por
+           convencion). En Spring lo trae spring-boot-starter-parent ya activado.
+           Ojo con el orden: <plugins> va ANTES de <pluginManagement>. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <systemPropertyVariables>
+            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+            <org.apache.avro.SERIALIZABLE_PACKAGES>com.aggora.avro</org.apache.avro.SERIALIZABLE_PACKAGES>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
     <pluginManagement>
       <plugins>
         <!-- El plugin de Avro se declara en cada modulo que lo necesite, igual que en Spring. -->
@@ -123,6 +149,8 @@
           <artifactId>avro-maven-plugin</artifactId>
           <version>${avro.version}</version>
         </plugin>
+
+
       </plugins>
     </pluginManagement>
   </build>

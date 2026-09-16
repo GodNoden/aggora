@@ -18,7 +18,7 @@ Dos mundos unidos por una red externa (`aggora-net`) y por un doble listener en 
 | Tropiezo | Por qué |
 |---|---|
 | El devcontainer no tenía Docker | Los tests de integración y el nativo quedaron bloqueados hasta montar `docker-outside-of-docker` |
-| El socket montado no era el del motor | Con Docker Desktop, `/var/run/docker-host.sock` resultó ser el socket **del CLI**: Testcontainers recibía 400 y nunca encontró Docker |
+| El socket montado no era el del motor | Con Docker Desktop, `/var/run/docker-host.sock` resultó ser el socket **del CLI**: el Testcontainers viejo (el del árbol de Spring) recibe 400 y no encuentra Docker. El de Quarkus, más nuevo, sí funciona: ver la actualización al final |
 | La ruta del proyecto era distinta dentro y fuera | `/workspaces/aggora` contra `/home/noei/aggora`: el contenedor de Mandrel no podía montar el proyecto para compilar el nativo |
 | El nombre del contenedor cambia al reconstruir | `eager_allen` → `charming_spence` → `condescending_keldysh`: todos los comandos con el nombre a pelo dejaron de funcionar |
 | `target/` quedó de `root` | Por compilar con Maven desde fuera del devcontainer; después, `...jar is read-only` dentro |
@@ -64,6 +64,24 @@ Y en `.devcontainer/app.Dockerfile`, además del JDK y Maven, **Mandrel** si vas
 4. **Mandrel en la imagen** elimina el `container-build`, la necesidad del socket para el nativo y
    el problema de rutas del contenedor de Mandrel.
 5. **El nombre del contenedor deja de importar**: los comandos son `docker compose exec app ...`.
+
+### ACTUALIZACIÓN (fase 10): Testcontainers SÍ funciona, y el diagnóstico era a medias
+
+Al habilitar el IT de Quarkus en el CI se volvió a probar esto, y el diagnóstico anterior se queda
+corto en un punto importante:
+
+- **El `*IT` de Quarkus SÍ se ejecuta en el devcontainer**, con sus contenedores de verdad (Kafka y
+  el Schema Registry por Dev Services), añadiendo **una sola variable**:
+  `TESTCONTAINERS_RYUK_DISABLED=true`. Lo que fallaba no era el motor de Docker: era **Ryuk** (el
+  contenedor que Testcontainers levanta para limpiar los recursos y al que luego no puede volver a
+  llegar desde el devcontainer). Medido: `Tests run: 1, Failures: 0, Errors: 0` en 38 s.
+- **El árbol de Spring sigue sin poder**: el Testcontainers que arrastra Spring Boot 4.1.1 es más
+  viejo, y contra el socket de Docker Desktop falla con `Status 400` en
+  `UnixSocketClientProviderStrategy` y un `NullPointerException` en
+  `DockerDesktopClientProviderStrategy`. El de Quarkus (más nuevo) sí sabe hablar con ese proxy. Así
+  que la limitación no es del entorno entero: **depende de la versión del cliente de Testcontainers**.
+- Efecto práctico: los `*IT` de Spring se siguen verificando en el CI (donde hay Docker nativo y
+  ya pasan), y el de Quarkus se puede verificar en local y en el CI.
 
 ### Lo que NO arregla: Testcontainers
 

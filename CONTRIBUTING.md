@@ -340,6 +340,20 @@
   `OutboxPostgresIT` contra un Postgres real— más el **workflow de CI** (`.github/workflows/ci.yml`):
   unitarios en cada push, integración en cada PR. **No se han podido ejecutar aquí**: el devcontainer
   no tiene Docker, igual que con el nativo. Compilan y corren en el CI.
+  - **El IT de Quarkus nunca se ejecutaba**, y se descubrió al revisar qué corre de verdad en el CI:
+    surefire ignora `*IT` por convención, el padre de Quarkus no tenía failsafe y el job de
+    integración solo listaba dos módulos de Spring. Arreglado: failsafe en `<plugins>` del padre de
+    Quarkus (en `<pluginManagement>` no vale: configura, no activa) y el módulo añadido al job.
+    Verificado en local, con contenedores de verdad:
+    ```bash
+    docker exec -u vscode -e TESTCONTAINERS_RYUK_DISABLED=true <devcontainer> \
+      bash -lc 'cd /workspaces/aggora/services && mvn verify -pl quarkus/ingestion-normalizer -am'
+    # -> Tests run: 1, Failures: 0, Errors: 0  (38 s, con Kafka y Schema Registry por Dev Services)
+    ```
+    `TESTCONTAINERS_RYUK_DISABLED=true` es lo que faltaba: el motor de Docker sí se alcanza desde el
+    devcontainer; lo que no se alcanza es **Ryuk**. Los `*IT` de Spring siguen necesitando el CI
+    (su Testcontainers, más viejo, no negocia con el socket de Docker Desktop). Detalle en
+    `docs/dev-environment.md`.
   - Ojo con `ExactlyOnceKafkaIT`: falló en CI dos veces y **el primer diagnóstico fue falso** ("es una
     carrera al leer"). La causa real es que `send()` es asíncrono y `abortTransaction()` descarta lo
     que el hilo emisor no ha mandado, así que el registro abortado no llegaba a existir. El test ahora

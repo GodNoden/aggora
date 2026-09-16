@@ -102,6 +102,13 @@ jobs:
 
       # `verify` es lo que ejecuta los *IT (failsafe). El runner de GitHub ya trae Docker, que es
       # justo lo que no tiene el devcontainer del proyecto: por eso estas pruebas viven aquí.
-      - name: Tests de integración de la implementación Spring
+      #
+      # Los tres módulos que tienen *IT, de los dos árboles. El de Quarkus usa Dev Services, que
+      # levanta Kafka y el Schema Registry él solo (Testcontainers por debajo): en el runner
+      # funciona, en el devcontainer no por el socket de Docker Desktop.
+      - name: Tests de integración de las dos implementaciones
         working-directory: services
-        run: mvn -B -ntp verify -pl spring/audit-log,spring/order-matching-engine -am
+        run: >-
+          mvn -B -ntp verify
+          -pl spring/audit-log,spring/order-matching-engine,quarkus/ingestion-normalizer
+          -am
