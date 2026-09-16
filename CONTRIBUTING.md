@@ -238,8 +238,11 @@
     la memoria, y eso cambiaría justo lo que se quiere medir. Las series llevan las etiquetas
     `stack="spring"` y `service=...`, que son las que permitirán poner las dos
     implementaciones en el mismo panel de Grafana. Prometheus ya las recoge
-    (`host.docker.internal:8080` y `:8085`, porque los servicios corren en el devcontainer y su
-    nombre de contenedor no resuelve desde `aggora-net`).
+    (`host.docker.internal:8080`, `:8085` y `:8089` de Spring; `:8185` y `:8189` de Quarkus en un
+    trabajo aparte, porque su ruta es `/q/metrics`; los servicios corren en el devcontainer y su
+    nombre de contenedor no resuelve desde `aggora-net`). **Trampa que costo un rato**: solo
+    responde para los puertos reenviados al host de WSL2, asi que un puerto sin reenviar da
+    `connection refused` y parece un servicio caido; los dos gateways estan en `forwardPorts`.
   - **Sonda de salud del motor** (`StreamsHealth`): `/actuator/health` baja a **DOWN** cuando
     Kafka Streams está en ERROR y publica `aggora_kafka_streams_running` (1/0). Verificado
     rompiendo el checkpoint del GlobalKTable a propósito: el proceso sigue vivo, el endpoint
