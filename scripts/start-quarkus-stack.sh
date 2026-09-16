@@ -26,6 +26,11 @@ set -euo pipefail
 
 SERVICES_DIR=/workspaces/aggora/services/quarkus
 LOG_DIR=${AGGORA_LOG_DIR:-/tmp}
+
+# El mismo limite de heap que la version Spring y que la unidad de systemd del despliegue: sin el,
+# trece JVM compitiendo por la memoria de la maquina acaban con el GC dando vueltas y los procesos
+# colgados (medido en el test de estres: ver docs/throughput-lab.md).
+QUARKUS_JAVA_OPTS=${QUARKUS_JAVA_OPTS:--Xms128m -Xmx320m}
 SUFIJO=${AGGORA_SUFIJO:-q}
 
 # "servicio|propiedades -D separadas por espacios"
@@ -56,7 +61,7 @@ for entrada in "${STACK[@]}"; do
   (
     cd "$SERVICES_DIR/$servicio"
     # shellcheck disable=SC2086
-    nohup java $propiedades -jar target/quarkus-app/quarkus-run.jar > "$LOG_DIR/$servicio-$SUFIJO.log" 2>&1 &
+    nohup java $QUARKUS_JAVA_OPTS $propiedades -jar target/quarkus-app/quarkus-run.jar > "$LOG_DIR/$servicio-$SUFIJO.log" 2>&1 &
   )
   # Se espera a que arranque: los motores de Streams de este stack leen topics que crea el
   # normalizer de este mismo stack, asi que el orden importa igual que en el de Spring.

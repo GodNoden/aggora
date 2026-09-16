@@ -1111,3 +1111,42 @@ Nota de entorno: Testcontainers sigue sin funcionar en este devcontainer (el soc
 Desktop no es el del motor), asi que este IT se sigue verificando en CI. Lo que se pudo verificar
 aqui es la **semantica y la carrera** contra los tres brokers locales, que es donde estaba el fallo.
 
+## El test de estrés: empate en throughput, diferencia en coste, y la máquina asfixiada
+
+El último punto de la lista era el throughput comparable. La herramienta obvia
+(`kafka-producer-perf-test`) no vale: manda bytes arbitrarios y detrás hay un esquema Avro y un
+validador, así que mediría el camino del DLT. Se escribió un generador que produce **ticks válidos**
+con el mismo serializador de Confluent (`scripts/AvroLoadGenerator.java`) y un orquestador que para
+el simulador, mide offsets de salida, pico de lag por grupo y **CPU por proceso desde `/proc`**
+(`scripts/throughput-test.sh`). El propio test comprueba su validez: si el DLT crece, o si algún
+canónico no cuadra con la entrada, el resultado se marca como no válido.
+
+| Ráfaga | Entrada | Canónico Spring/Quarkus | Analítica Spring/Quarkus | CPU/mensaje Spring | CPU/mensaje Quarkus |
+|---|---|---|---|---|---|
+| 1.500 msg/s (20 s) | 29.998 | 29.998 / 29.998 | 149.990 / 149.990 | 0,61 ms | 1,27 ms |
+| 4.000 msg/s (20 s) | 79.996 | 79.996 / 79.996 | 399.980 / 399.980 | 0,47 ms | 0,81 ms |
+
+Conclusiones: (1) **empatan en throughput** —47 veces la tasa del simulador y sin perder un
+mensaje—; (2) el cuello es el **normalizer** (pico de lag 67.003/62.979) y no el motor de Streams
+(1.639/0); (3) el coste no empata: el normalizer de Quarkus gasta **2,8x** más CPU, mientras los dos
+motores de Streams gastan lo mismo porque **por debajo es la misma librería** —lo que además es un
+control de que la medición tiene sentido.
+
+**Y lo que destapó, que no era la pregunta.** El primer intento no midió nada: el normalizer de
+Spring dejó de publicar (canónico +0 mientras el crudo avanzaba +354) mientras su grupo seguía
+**Stable y con lag 0**, sin un solo error en el log; su analítica dejó de contestar en el 8085 con
+**75.055 GC completos** detrás. La causa no era el framework: **13 JVM sobre 23 GB sin límite de
+heap**, cada una cogiendo por defecto un cuarto de la RAM. Lag 0 con el productor muerto es la
+trampa más cara de todo el laboratorio: los offsets avanzan y no se publica nada.
+
+El arreglo ya estaba en el proyecto, en la unidad de systemd de la Fase 10 (`-Xmx320m`); los scripts
+locales no lo tenían. Ahora los dos lo tienen (`SPRING_JAVA_OPTS`, `QUARKUS_JAVA_OPTS`) y los mismos
+1.500 msg/s que colgaban el pipeline pasan sin perder un mensaje. Detalle, límites y lo que este
+experimento **no** puede decir: `docs/throughput-lab.md`.
+
+Dos bugs de medición que costaron tiempo y quedan escritos en el script: el envoltorio
+`bash -lc "... java ..."` aparece en `pgrep` y comparte directorio con el servicio (dos entradas por
+servicio → `join` cruzaba filas y salían CPU negativas), y usar la misma variable para el patrón y
+el acumulador en `awk` hacía que solo se sumara el primer servicio. Un test de estrés que miente en
+la medición es peor que no tenerlo.
+

@@ -31,6 +31,7 @@ were fixed.
 | Replicas, ISR and `min.insync.replicas` | 3-broker KRaft cluster with 3 replicas per partition |
 | Operations and observability | kafka-exporter + Prometheus + Grafana, provisioned from this repository; app metrics from actuator/micrometer and a health probe that goes DOWN when the engine is dead |
 | Fan-out: the same topic, one copy per consumer group | `gateway-ws` keeps its own group on three topics and pushes every record to every open browser |
+| Measuring the two implementations instead of arguing | `scripts/throughput-test.sh` pushes both pipelines at once (up to 47x the simulator) and reports throughput, peak lag per consumer group and **CPU per message** read from `/proc`: [docs/throughput-lab.md](docs/throughput-lab.md) |
 | Deploying it: what can be serverless and what cannot | `deploy/README.md`: managed broker, one always-on VM for the stateful services, `ingestion-normalizer` on Lambda with an event source mapping |
 
 ---
@@ -192,6 +193,7 @@ CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
 docs/kafka-101.md          the Kafka concepts in plain language (21 chapters)
 docs/decisions.md          decision log and the deliberate deviations from the spec
 docs/schema-evolution-lab.md  the schema evolution lab manual
+docs/throughput-lab.md     the throughput stress test: method, numbers and what it uncovered
 infra/                     docker-compose, Prometheus, Grafana dashboard
 scripts/                   start/stop, the schema evolution lab and the measurement of startup/RSS
 services/                  Maven aggregator: the platform in both implementations

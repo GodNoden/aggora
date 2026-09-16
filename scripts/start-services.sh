@@ -34,6 +34,13 @@ SERVICES=(
 SERVICES_DIR=/workspaces/aggora/services/spring
 LOG_DIR=${AGGORA_LOG_DIR:-/tmp}
 
+# Limite de heap por servicio, el MISMO que pone la unidad de systemd del despliegue
+# (deploy/systemd/aggora@.service). Sin esto, cada JVM se coge por defecto un cuarto de la RAM de
+# la maquina: con siete servicios de Spring mas seis de Quarkus, los tres brokers y Grafana, la
+# maquina se queda sin memoria, el GC se pone a dar vueltas y los procesos se quedan colgados SIN
+# decir nada. Lo midio el test de estres de throughput (ver docs/throughput-lab.md).
+SPRING_JAVA_OPTS=${SPRING_JAVA_OPTS:--Xms128m -Xmx384m}
+
 if [ -z "${ALPHAVANTAGE_API_KEY:-}" ] && [ -f "$HOME/.secrets/alphavantage" ]; then
   ALPHAVANTAGE_API_KEY="$(cat "$HOME/.secrets/alphavantage")"
 fi
@@ -78,7 +85,7 @@ for entry in "${SERVICES[@]}"; do
 
   (
     cd "$SERVICES_DIR/$service"
-    nohup java -jar "target/$service-spring-0.1.0-SNAPSHOT.jar" > "$LOG_DIR/$service.log" 2>&1 &
+    nohup java $SPRING_JAVA_OPTS -jar "target/$service-spring-0.1.0-SNAPSHOT.jar" > "$LOG_DIR/$service.log" 2>&1 &
   )
   # Se espera antes de seguir: es lo que evita la carrera de topics.
   esperar_listo "$service" "$expected" || true
