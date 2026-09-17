@@ -1263,12 +1263,12 @@ esta reconocida (el arranque avisa de `Unrecognized configuration key` y el CORS
 La buena es `quarkus.http.cors.enabled=true` + `quarkus.http.cors.origins`. Se descubrio porque
 el smoke daba el CORS en verde en el gateway de Spring y en rojo en el de Quarkus.
 
-### Fase 11: lo que se rompio al mirar (y las deudas que deja)
+### Fase 11: lo que se rompio al mirar (y las deudas que dejo, ya pagadas)
 
-**1. El DLT cubre fallos de VALIDACION, no de DESERIALIZACION.** El DLT de Aggora lo escribe el
-propio consumidor cuando ya tiene un `Tick` deserializado y lo rechaza por contenido. Un mensaje
-que no es Avro revienta antes, en el deserializador, y ningun DLT lo ve. Medido a proposito (un
-mensaje de basura a `market.ticks.raw`):
+**1. El DLT cubre fallos de VALIDACION y, desde la Fase 11, tambien de DESERIALIZACION.** Hasta la
+Fase 11 el DLT lo escribia solo el propio consumidor, cuando ya tenia un `Tick` deserializado y lo
+rechazaba por contenido. Un mensaje que no era Avro revienta antes, en el deserializador, y ningun
+DLT lo veia. Medido a proposito (un mensaje de basura a `market.ticks.raw`):
 
 - el normalizer de **Spring** entro en un bucle de reintentos del fallo de deserializacion y
   escribio **17,4 GB de log en ~6 minutos**, con la particion atascada. Se recupero parandolo,
@@ -1276,12 +1276,27 @@ mensaje de basura a `market.ticks.raw`):
   --to-latest --execute`);
 - el de **Quarkus** (`failure-strategy=ignore`) revoco las particiones y no volvio.
 
-**El arreglo NO esta implementado** (deuda consciente, anotada aqui a proposito): Spring necesita
-un `ErrorHandlingDeserializer` envolviendo el deserializador de Avro y un `CommonErrorHandler` con
-`DeadLetterPublishingRecoverer`; Quarkus, un `DeserializationFailureHandler` en el canal de
-entrada. Mientras no este, la frase "lo que no se puede procesar acaba en el DLT" solo vale para
-lo que se puede leer. La leccion 2 del dashboard lo deja escrito y no provoca el veneno por
-defecto: `scripts/leccion-2-veneno-dlt.sh`.
+**El arreglo ya esta implementado y verificado en los dos arboles:**
+
+- **Spring** (`KafkaConsumerConfig`): `ErrorHandlingDeserializer` envuelve al `KafkaAvroDeserializer`
+  (`spring.kafka.consumer.value-deserializer` + `spring.deserializer.value.delegate.class`) y el
+  contenedor lleva un `DefaultErrorHandler` con un `DeadLetterPublishingRecoverer`. El recoverer
+  publica en `market.ticks.raw.DLT` los **bytes originales** (los saca del `DeserializationException`
+  que deja el envoltorio en la cabecera) con la cabecera `x-dlt-reason`, y usa un productor
+  `String`/`byte[]` aparte para no pasar por el serializador de Avro. `DeserializationException` es
+  "no reintentable" para Spring, asi que va al DLT al primero: cero bucles.
+- **Quarkus** (`DltDeserializationFailureHandler`): un `DeserializationFailureHandler` de SmallRye,
+  enganchado con `mp.messaging.incoming.ticks-raw.value-deserialization-failure-handler`, publica los
+  bytes en `market.ticks.raw.DLT.q` por un canal con `ByteArraySerializer` y devuelve `null`; `onTick`
+  ve el payload nulo, confirma el offset y sigue. El consumidor no revoca.
+
+**El antes/despues medido** (mismo veneno, con `scripts/leccion-2-veneno-dlt.sh`, que ya provoca los
+dos casos): antes, el mensaje no-Avro dejaba la particion de Spring atascada y el log creciendo a
+~50 MB/s, y en Quarkus el grupo revocaba y no volvia; despues, cada DLT suma exactamente uno por
+veneno, los dos grupos se quedan con lag 0-4, no hay rebalanceos nuevos y los dos canonicos siguen
+creciendo. Lo que NO cambia: el camino de validacion sigue siendo el del propio consumidor (mismo
+topic, misma cabecera, mismo motivo). Son dos puertas al mismo DLT porque el que falla al leer no
+llega al codigo: no hay nada que unificar sin inventarse un envoltorio.
 
 **2. La trampa del `.properties`: un `#` de media linea NO es un comentario.** En
 `services/quarkus/ingestion-normalizer/src/main/resources/application.properties` habia cuatro
@@ -1299,9 +1314,30 @@ lo tocan. Estuvo escondido porque el proceso que corria usaba un jar **anterior*
 que parecia sano. Arreglado moviendo los cuatro comentarios a su propia linea. Es el ejemplo mas
 barato de "el test no es el artefacto": lo que se despliega hay que arrancarlo alguna vez.
 
-**3. Los logs locales no rotan, y eso convierte un fallo en un incidente de disco.** Los servicios
-se lanzan con `nohup ... > /tmp/<servicio>.log` y **sin rotacion**: un bucle de errores escribio
-17,4 GB. La guarda que corresponde (no implementada, anotada): rotacion en el arranque local
-(`logrotate` o un `ulimit -f` por proceso) o un tope de tamano con redireccion. En produccion lo
-resuelve el supervisor (systemd/journald o el runtime del contenedor), pero el script de arranque
-local no lo tiene.
+**3. Los logs locales no rotan, y eso convierte un fallo en un incidente de disco. Arreglado.** Los
+servicios se lanzan con `nohup ... > /tmp/<servicio>.log` y sin rotacion: el bucle de errores del
+punto 1 escribio 17,4 GB. Ahora los dos scripts de arranque (`scripts/start-services.sh` y
+`scripts/start-quarkus-stack.sh`) hacen dos cosas antes de lanzar cada servicio:
+
+- si su log pasa de 50 MB (`AGGORA_LOG_MAX_BYTES`) lo mueven a `<servicio>.log.1`, guardando solo la
+  vuelta anterior, y el arranque nuevo empieza con el fichero a cero;
+- la subshell que lanza la JVM lleva un `ulimit -f` (`AGGORA_LOG_ULIMIT_BLOQUES`, 2 GB) como
+  cinturon: si un log se descontrola durante la ejecucion, el proceso muere al pasar del tope en vez
+  de llenar el disco. El tope de ulimit es mucho mas alto que el de rotacion porque `ulimit -f`
+  alcanza a TODOS los ficheros de la JVM, y en `/tmp` tambien vive el estado de Kafka Streams.
+
+En produccion lo resuelve el supervisor (systemd/journald o el runtime del contenedor), pero el
+arranque local ya no puede llenar el disco. La leccion 2 ademas vigila los dos logs mientras prueba
+el veneno y aborta (parando el normalizer) si uno pasa de 200 MB, por si alguien la ejecuta contra un
+jar viejo.
+
+**4. `esta_vivo` no veia a los servicios y el script arrancaba duplicados.** Verificando la guarda de
+logs se descubrio que `start-services.sh` buscaba `java -jar target/<servicio>` en la linea de
+comandos, pero los servicios arrancan con `$JAVA_OPTS` en medio (`java -Xms128m ... -jar target/...`):
+el patron no casaba nunca y el script lanzaba una SEGUNDA instancia de cada servicio (los que tienen
+puerto morian al chocar; el normalizer, que no lo tiene, se quedaba consumiendo en el mismo grupo).
+El de Quarkus tenia el mismo problema por otra via: buscaba la ruta absoluta del runner, que no
+aparece en la linea de comandos (el `cd` no sale ahi) y ademas los seis servicios comparten
+`-jar target/quarkus-app/quarkus-run.jar`. Arreglado mirando el jar de Spring en la linea de comandos
+y el directorio de trabajo (`/proc/<pid>/cwd`) en Quarkus. Sin esto, la guarda de logs se habria
+probado arrancando el stack entero por duplicado.

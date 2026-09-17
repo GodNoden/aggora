@@ -457,7 +457,8 @@ transacciones, eso es perder la orden en silencio. Aqui se configura para que re
 excepcion y la transaccion se deshaga, de modo que el mensaje siga pendiente. En
 produccion, el destino de un mensaje que no se puede procesar es un topic de descartes
 con su aviso (Fase 6), no el olvido. (Con el matiz de la Fase 6: ese DLT cubre lo que falla
-al **validar**, no lo que falla al **deserializar**; ver el capitulo 13.)
+al **validar**; para lo que falla al **deserializar** hizo falta una segunda puerta, que se cerro
+en la Fase 11; ver el capitulo 13.)
 
 **Y una segunda trampa, esta descubierta escribiendo el test de esa misma tabla** (y que costo
 dos ejecuciones de CI entenderla). `send()` es **asincrono**: el registro se queda en un bufer y lo
@@ -572,28 +573,39 @@ silencio": acabamos con un mensaje imposible parando su particion para siempre.
   razon), el publicador de descartes no puede crear el topic por su cuenta: intenta escribir
   y el broker le contesta que no existe. Nos paso en vivo.
 
-**Ojo, y esto se midio en vivo: el DLT cubre lo que falla al VALIDAR, no lo que falla al
-DESERIALIZAR.** El DLT que hay en Aggora lo escribe el propio consumidor cuando ya tiene un
-`Tick` en la mano y lo rechaza por contenido (`TickConsumer` / `TickNormalizer`). Un mensaje que
-no es Avro **no llega ahi**: revienta antes, en el deserializador, y ese camino no esta
-cubierto por nadie. Las consecuencias de mandar un mensaje no-Avro a `market.ticks.raw`, que se
-probaron a proposito:
+**Ojo, que aqui hay DOS fallos distintos y ocurren en sitios distintos.** El DLT cubre los dos, pero
+por puertas diferentes, y confundirlas costo un incidente:
+
+- **Fallo de VALIDACION.** El mensaje ya es un `Tick`: se ha leido bien y se rechaza por contenido
+  (precio 0, divisa que no existe). Ocurre DENTRO del codigo, asi que el consumidor lo ve, decide y
+  lo manda el mismo al DLT (`TickConsumer` / `TickNormalizer`).
+- **Fallo de DESERIALIZACION.** El mensaje ni siquiera se puede leer (no es Avro). Ocurre ANTES del
+  codigo, en el cliente de Kafka, durante `poll()`. El metodo `@KafkaListener`/`@Incoming` **no
+  llega a ejecutarse**, asi que el manejador de errores del contenedor no lo cubre: no hay ningun
+  `try/catch` alrededor del codigo que pueda verlo. Hay que engancharse al propio deserializador.
+
+Las consecuencias de no cubrir el segundo, medidas a proposito con un mensaje de basura a
+`market.ticks.raw`:
 
 - El normalizer de **Spring** entra en un bucle de reintentos del fallo de deserializacion y
   escribio **17,4 GB de log en ~6 minutos**, con la particion atascada. Hubo que pararlo, borrar
   el log y resetear los offsets del grupo.
-- El de **Quarkus** (`failure-strategy=ignore`) no cubre tampoco ese fallo: el consumidor revoca
-  las particiones y no vuelve.
+- El de **Quarkus** (`failure-strategy=ignore`) no cubria tampoco ese fallo: el consumidor revocaba
+  las particiones y no volvia.
 
-El arreglo, **que NO esta implementado** (es deuda consciente y esta en `docs/decisions.md`):
+**Como se cubre** (implementado y verificado en los dos arboles, ver `docs/decisions.md`):
 
-- Spring: envolver el deserializador con un `ErrorHandlingDeserializer` y darle al contenedor un
-  `CommonErrorHandler` con `DeadLetterPublishingRecoverer`.
-- Quarkus: un `DeserializationFailureHandler` en el canal de entrada.
+- Spring: `ErrorHandlingDeserializer` envuelve al deserializador de Avro y, en vez de lanzar, deja
+  la excepcion y los bytes originales en una cabecera. El `DefaultErrorHandler` del contenedor la
+  recoge —`DeserializationException` es "no reintentable", asi que no hay bucle— y un
+  `DeadLetterPublishingRecoverer` publica esos bytes en el DLT con `x-dlt-reason`.
+- Quarkus: un `DeserializationFailureHandler` en el canal de entrada recibe los bytes que no se
+  pudieron leer, los publica en el DLT y devuelve `null`; el consumidor confirma el offset y sigue
+  vivo, sin revocar particiones.
 
-Regla para no volver a morderlo: **"lo que no se puede procesar acaba en el DLT" es cierto solo
-para lo que se puede leer**. Si el contrato de bytes no se respeta, el fallo ocurre antes del
-codigo y el DLT se queda ciego.
+Regla para no volver a morderlo: **"lo que no se puede procesar acaba en el DLT" tiene dos puertas,
+la del codigo y la del deserializador, y hay que cubrir las dos. Un DLT que solo escucha al codigo
+es ciego a todo lo que no se puede ni leer.**
 
 **Cuanto se reintenta es una decision de negocio, no tecnica.** Para un feed de precios,
 reintentar mucho es absurdo: un tick de hace dos minutos ya no sirve, mejor descartarlo

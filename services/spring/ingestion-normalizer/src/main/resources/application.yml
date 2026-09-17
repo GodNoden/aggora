@@ -14,11 +14,17 @@ spring:
       # Sin offset guardado, empieza por el principio del topic.
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      # Deserializador Avro de Confluent: lee el ID de esquema que lleva el mensaje,
-      # pide el esquema al registry y lo convierte. Los mensajes son binarios.
-      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      # El deserializador AVRO va ENVUELTO: si un mensaje no es Avro valido, el envoltorio
+      # captura la excepcion y la deja en una cabecera en vez de reventar al consumidor.
+      # Sin esto, un solo byte malo metia al normalizer en un bucle de reintentos que
+      # escribio 17,4 GB de log en seis minutos (ver docs/decisions.md).
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       max-poll-records: 200
       properties:
+        # El deserializador de verdad, el de Confluent: lee el ID de esquema que lleva el
+        # mensaje, pide el esquema al registry y lo convierte. Los mensajes son binarios.
+        # ErrorHandlingDeserializer lo instancia el solo a partir de esta propiedad.
+        spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.KafkaAvroDeserializer
         # Devolver la clase generada (com.aggora.avro.Tick) en vez de un GenericRecord.
         specific.avro.reader: true
         # Cuánto puede estar el proceso sin llamar a poll() antes de que el broker

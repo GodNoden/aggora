@@ -229,19 +229,31 @@ copia menos. Eso es lo que compra tener replicas.
 bash scripts/leccion-2-veneno-dlt.sh
 ```
 
-Manda a `market.ticks.raw` un tick que es **Avro perfecto** (mismo esquema del registro) pero
-invalido de contenido: precio 0. El normalizer lo lee bien y lo rechaza por validacion, asi que
-acaba en `market.ticks.raw.DLT` con la cabecera `x-dlt-reason: precio ausente o no positivo`.
-**Panel `descartes`**: el offset sube de uno en uno.
+Manda a `market.ticks.raw` los **dos venenos** y comprueba que los dos acaban en los dos DLT:
 
-**Y el agujero, medido en vivo y no implementado:** un mensaje que **no es Avro** no llega al DLT.
-El deserializador falla *antes* que el codigo, y el unico DLT que hay es el que escribe
-`TickConsumer`/`TickNormalizer` para lo que falla **validacion**. Las consecuencias se midieron:
-el normalizer de Spring entra en un bucle de reintentos que escribio **17,4 GB de log en ~6
-minutos** y dejo la particion atascada; el de Quarkus revoca las particiones y no vuelve. El
-arreglo (no implementado, ver `docs/decisions.md`) es `ErrorHandlingDeserializer` +
-`DeadLetterPublishingRecoverer` en Spring y un `DeserializationFailureHandler` en Quarkus. El
-script explica el procedimiento manual y su recuperacion, pero **no lo provoca por defecto**.
+1. un tick que es **Avro perfecto** (mismo esquema del registro) pero invalido de contenido: precio
+   0. El normalizer lo lee bien y lo rechaza al **validar**, asi que acaba en `market.ticks.raw.DLT`
+   con la cabecera `x-dlt-reason: precio ausente o no positivo`;
+2. bytes que **no son Avro**. Aqui el fallo es al **deserializar**, antes de que el codigo vea el
+   mensaje: acaba igualmente en el DLT con `x-dlt-reason: fallo de deserializacion: ...`, en los dos
+   stacks.
+
+**Panel `descartes`**: el offset de `market.ticks.raw.DLT` y el de `.q` suben de uno en uno con cada
+veneno. El script comprueba ademas que los dos normalizers siguen vivos y al dia: lag bajo, sin
+rebalanceos nuevos y con los canonicos creciendo.
+
+**El agujero que esto cierra, medido en vivo:** hasta la Fase 11 un mensaje que **no era Avro** no
+llegaba al DLT, porque el deserializador falla *antes* que el codigo y el unico DLT que habia lo
+escribia `TickConsumer`/`TickNormalizer` al **validar**. Las consecuencias se midieron: el normalizer
+de Spring entraba en un bucle de reintentos que escribio **17,4 GB de log en ~6 minutos** y dejaba la
+particion atascada; el de Quarkus revocaba las particiones y no volvia. Ya esta arreglado
+(`ErrorHandlingDeserializer` + `DeadLetterPublishingRecoverer` en Spring; un
+`DeserializationFailureHandler` en Quarkus; ver `docs/decisions.md` y el capitulo 13 de
+`docs/kafka-101.md`).
+
+Por si alguien ejecuta la leccion contra un jar viejo, el script vigila el tamano de los dos logs
+mientras prueba: si uno pasa de 200 MB para el normalizer, imprime el procedimiento de recuperacion y
+sale con error en vez de dejar que se repita el incidente.
 
 ### Leccion 3 — rebalanceo
 

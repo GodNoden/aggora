@@ -28,8 +28,14 @@ import org.springframework.stereotype.Component;
  * media faena, al reiniciar se relee desde el ultimo offset confirmado: eso es
  * at-least-once (puede repetirse, no puede perderse).
  *
- * Los mensajes invalidos se descartan con un warning y se confirman: en la Fase 6
- * esto se convierte en un topic de descartes (*.DLT) en lugar de un log.
+ * Los mensajes invalidos van al topic de descartes (*.DLT) con el motivo en una cabecera,
+ * y el offset se confirma igual: el descarte no para la particion.
+ *
+ * Y desde la Fase 11 el DLT tambien cubre lo que NO SE PUEDE LEER: un mensaje que no es Avro
+ * lo publica el ErrorHandlingDeserializer junto con el DeadLetterPublishingRecoverer
+ * (ver KafkaConsumerConfig), con los bytes originales y el mismo x-dlt-reason. Antes de eso,
+ * un solo mensaje no-Avro metia a este consumidor en un bucle de reintentos que escribio
+ * 17,4 GB de log en seis minutos.
  */
 @Component
 public class TickConsumer {

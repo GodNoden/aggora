@@ -34,6 +34,12 @@ import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
  * compactado y manda lo que no se puede procesar a {@code market.ticks.raw.DLT} con el motivo
  * en una cabecera.
  *
+ * <p><b>Las dos puertas al DLT.</b> Lo que falla al VALIDAR lo manda este metodo. Lo que no se
+ * puede ni LEER (no es Avro) no llega aqui: lo cubre {@link DltDeserializationFailureHandler},
+ * que publica los bytes originales y devuelve {@code null}; entonces aqui se ve un payload nulo,
+ * se confirma el offset y se sigue. Sin las dos, un mensaje ilegible revocaba las particiones
+ * (ver docs/decisions.md).
+ *
  * <p><b>El mapeo de conceptos, que es lo que se viene a comparar:</b>
  *
  * <table>
@@ -100,6 +106,17 @@ public class TickNormalizer {
     @Blocking
     public CompletionStage<Void> onTick(KafkaRecord<String, Tick> record) {
         long count = received.incrementAndGet();
+
+        // Payload nulo = el registro no se pudo deserializar. El DltDeserializationFailureHandler
+        // ya lo dejo en el DLT con los bytes originales y su x-dlt-reason: aqui solo se confirma
+        // el offset para que el grupo siga avanzando (antes esto revocaba las particiones).
+        if (record.getPayload() == null) {
+            discarded.incrementAndGet();
+            log.warn("[DLT] part={} offset={} key={} no deserializable: ya esta en el DLT, se confirma y se sigue",
+                    record.getPartition(), offsetDe(record), record.getKey());
+            return record.ack();
+        }
+
         String problem = validator.validate(record.getKey(), record.getPayload());
 
         if (problem != null) {
