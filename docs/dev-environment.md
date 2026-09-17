@@ -65,34 +65,37 @@ Y en `.devcontainer/app.Dockerfile`, además del JDK y Maven, **Mandrel** si vas
    el problema de rutas del contenedor de Mandrel.
 5. **El nombre del contenedor deja de importar**: los comandos son `docker compose exec app ...`.
 
-### ACTUALIZACIÓN (fase 10): Testcontainers SÍ funciona, y era la VERSIÓN
+### ACTUALIZACIÓN (fase 10): Testcontainers sí funciona, pero depende de la versión y del árbol
 
-Al habilitar el IT de Quarkus en el CI se volvió a probar esto, y la conclusión anterior ("el socket
-no es el del motor, así que aquí no hay Testcontainers") era **incorrecta en dos sentidos**:
+Probando esto en serio (al habilitar el IT de Quarkus en el CI) aparecieron tres cosas:
 
-1. **Lo que no se alcanzaba era Ryuk**, el contenedor que Testcontainers levanta para limpiar los
-   recursos y al que luego no puede volver a llegar desde el devcontainer. Con
-   `TESTCONTAINERS_RYUK_DISABLED=true` (y `TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal`)
-   funciona: el motor de Docker sí se alcanza.
-2. **Y el árbol de Spring también funciona**: lo que fallaba era la **versión** del cliente. Spring
-   Boot 4.1.1 fija Testcontainers **1.21.3**, cuya estrategia de socket recibe un `Status 400` del
-   proxy de Docker Desktop y cuya estrategia de Docker Desktop revienta con un
-   `NullPointerException`; Quarkus usa **2.0.5**, que sí sabe hablarlo. Subiendo la propiedad
-   `testcontainers.version` a 2.0.5 (la misma línea que Quarkus) los dos `*IT` de Spring corren en
-   local: `ExactlyOnceKafkaIT` (30,6 s) y `OutboxPostgresIT` (4,2 s), verdes.
+1. **Lo que no se alcanzaba era Ryuk**, el contenedor que Testcontainers levanta para limpiar. Con
+   `TESTCONTAINERS_RYUK_DISABLED=true` (y `TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal`) el
+   motor de Docker sí se alcanza desde el devcontainer. El `*IT` de Quarkus corre así, en local y en
+   el CI: `Tests run: 1, Failures: 0` con Kafka y registro de verdad.
+2. **El árbol de Quarkus usa Testcontainers 2.0.5** (lo decide su BOM) y **el de Spring 1.21.3** (lo
+   decide el BOM de Boot 4.1.1). La 1.21.3 no negocia con el socket de Docker Desktop (400 en la
+   estrategia de socket y `NullPointerException` en la de Docker Desktop), así que **sus `*IT` solo
+   corren en el CI**; la 2.x sí funciona en local.
+3. **Se intentó subir el árbol de Spring a la 2.x y no ha quedado.** Localmente los dos `*IT`
+   pasaban, pero en un runner Linux nativo el registro de esquemas no llegaba al broker: su chequeo
+   `kafka-ready` falla con `Expected 1 brokers but found only 0` /
+   `TimeoutException: Timed out waiting for a node assignment`, porque entra por
+   `PLAINTEXT://kafka:9092` y el broker le devuelve el *listener* que anuncia para el host
+   (`localhost:<puerto mapeado>`), inalcanzable desde dentro del contenedor. Es un cambio del
+   cableado interno de la 2.x que **no se puede reproducir en el devcontainer** (Docker Desktop
+   enruta de otra forma), así que se revirtió: mejor un CI verde con la versión que Boot ya prueba
+   que una mejora que no se puede verificar. Queda escrito arriba lo que habría que intentar
+   (`BROKER://kafka:9092`, o montar Kafka a mano con las variables de KRaft).
 
-**La migración a 2.x no es solo cambiar el número**, y conviene saberlo antes de intentarlo:
+**Lo que sí se quedó del intento**: la espera explícita del registro
+(`waitingFor(Wait.forHttp("/subjects")...)`), que era un bug real del test —daba el contenedor por
+listo en cuanto existía el proceso— y que las dos versiones se benefician.
 
-- **Los módulos cambiaron de nombre**: `kafka`, `postgresql` y `junit-jupiter` ahora se llaman
-  `testcontainers-kafka`, `testcontainers-postgresql` y `testcontainers-junit-jupiter`. Con los
-  nombres viejos y la versión nueva, Maven dice que el artefacto no existe.
-- **El contenedor de Kafka cambió de paquete**: `org.testcontainers.containers.KafkaContainer` pasa a
-  `org.testcontainers.kafka.ConfluentKafkaContainer` (imágenes de Confluent) o
-  `org.testcontainers.kafka.KafkaContainer` (imágenes de Apache). Con la imagen de Apache
-  (`apache/kafka:3.9.0`) el contenedor sale con **código 1**, porque esa imagen exige todas las
-  variables de KRaft y el módulo no las pone por ti; se mantiene la de Confluent, que ya daba verde.
-- A cambio, los dos árboles usan la **misma línea** de Testcontainers, que es lo que este proyecto
-  quiere para que la comparación entre implementaciones sea justa.
+| Árbol | Testcontainers | `mvn verify` en local | En el CI |
+|---|---|---|---|
+| Spring | 1.21.3 (BOM de Boot) | No (socket de Docker Desktop) | Sí, verde |
+| Quarkus | 2.0.5 (BOM de Quarkus) | Sí, con Ryuk desactivado | Sí, con Dev Services |
 
 ### Lo que NO arregla: Testcontainers
 

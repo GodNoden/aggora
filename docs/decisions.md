@@ -1205,3 +1205,30 @@ Lección (la cuarta de la misma familia): un test que pasa en tu máquina puede 
 entorno**, no por el código. Si el test depende de Dev Services, hay que comprobar en el log que los
 Dev Services **arrancan**.
 
+### Cierre del episodio: la 2.x no se queda en el árbol de Spring
+
+El intento de subir el árbol de Spring a Testcontainers 2.x se revirtió. Resumen y por qué:
+
+- **Lo que se gana con la 2.x**: los dos `*IT` de Spring corren en el devcontainer (cosa que con la
+  1.21.3 no se puede, por el socket de Docker Desktop). Verificado en local: `ExactlyOnceKafkaIT` 1/1
+  y `OutboxPostgresIT` 2/2.
+- **Lo que se pierde**: en un runner Linux nativo, el registro de esquemas no consigue hablar con el
+  broker. Con la espera explícita puesta, el log del contenedor lo dice sin ambigüedad:
+  `Expected 1 brokers but found only 0` y `Timed out waiting for a node assignment`. El registro
+  entra por `PLAINTEXT://kafka:9092` y el broker le devuelve el listener que anuncia para el host
+  (`localhost:<puerto mapeado>`), que desde dentro del contenedor no existe.
+- **Por qué no se arregló**: no se puede reproducir en el devcontainer (Docker Desktop enruta de
+  otra manera), así que cualquier arreglo sería a ciegas y a base de ejecuciones del CI. Con la
+  1.21.3 ese IT lleva varias ejecuciones verdes: **una mejora que no se puede verificar no compensa
+  un CI rojo**.
+- **Lo que se queda del intento**: (1) la espera explícita del registro de esquemas, que era un bug
+  real del test (daba el contenedor por arrancado en cuanto existía el proceso) y beneficia a las dos
+  versiones; (2) los cuatro hallazgos escritos en `docs/dev-environment.md`; (3) el IT de Quarkus
+  habilitado, que sí corre en local y en CI.
+- **Si alguien lo retoma**: apuntar el registro al listener interno (`BROKER://kafka:9092`) en vez
+  de a `PLAINTEXT`, o montar Kafka a mano con las variables de KRaft en lugar del contenedor de
+  Confluent que trae Testcontainers.
+
+Y la lección de método, que es la que más veces ha aparecido en este proyecto: **cuando algo se
+arregla "solo en tu máquina", hay que desconfiar de la mejora, no del CI**.
+

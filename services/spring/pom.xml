@@ -54,20 +54,25 @@
     <!--
       Testcontainers: para los tests de integracion (*IT). Spring Boot importa el BOM de
       Testcontainers en su dependencyManagement, pero NO gestiona los modulos, asi que aqui se fija
-      la version. OJO con los nombres: en la linea 2.x los modulos se llaman testcontainers-<modulo>
-      (testcontainers-kafka, testcontainers-postgresql, testcontainers-junit-jupiter), no kafka ni
-      postgresql a secas como en la 1.x.
+      la version. Se usa la MISMA que importa Boot (1.21.3).
 
-      DESVIACION DELIBERADA de la version que gestiona Boot (1.21.3): se sube a la 2.x, la MISMA
-      linea que usa Quarkus. No es por tener la ultima: es que la 1.21.3 **no puede hablar con el
-      socket de Docker Desktop** del devcontainer (la estrategia de socket recibe un 400 y la de
-      Docker Desktop revienta con NullPointerException, asi que los *IT de este arbol solo podian
-      correr en el CI), y la 2.x si. Verificado ejecutando los *IT en local con
-      TESTCONTAINERS_RYUK_DISABLED=true (lo que no se alcanza desde el devcontainer es Ryuk, no el
-      motor). Efecto secundario bueno: los dos arboles usan la misma linea de Testcontainers, que es
-      lo que este proyecto quiere para que la comparacion sea justa.
+      SE INTENTO subir a la 2.x (la linea que usa Quarkus) y NO ha quedado: con la 2.x el wiring
+      interno entre Kafka y el Schema Registry en un runner Linux nativo se rompe y no se puede
+      reproducir en el devcontainer (Docker Desktop enruta de otra forma). Lo que pasa exactamente,
+      con el log delante: el registro de esquemas no pasa su propio chequeo `kafka-ready`
+      ("Expected 1 brokers but found only 0", "Timed out waiting for a node assignment"), porque entra
+      por `PLAINTEXT://kafka:9092` y el broker le devuelve el listener que anuncia para el host
+      (localhost:puerto mapeado), que desde dentro del contenedor no existe. Con la 1.21.3 ese mismo
+      IT lleva varias ejecuciones en verde.
+
+      La contrapartida, dicha claro: con la 1.21.3 estos *IT NO corren en el devcontainer (su
+      estrategia de socket no negocia con Docker Desktop) y se verifican en el CI. El IT de Quarkus
+      Si corre en los dos sitios, porque ese arbol usa la 2.x. Si alguien quiere retomarlo, el
+      siguiente intento razonable es apuntar el registro al listener interno
+      (`BROKER://kafka:9092`) o montar Kafka a mano con las variables de KRaft, en vez de usar el
+      contenedor de Confluent que trae Testcontainers.
     -->
-    <testcontainers.version>2.0.5</testcontainers.version>
+    <testcontainers.version>1.21.3</testcontainers.version>
   </properties>
 
   <!--
@@ -79,19 +84,19 @@
   <dependencies>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <artifactId>junit-jupiter</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers-kafka</artifactId>
+      <artifactId>kafka</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers-postgresql</artifactId>
+      <artifactId>postgresql</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>
