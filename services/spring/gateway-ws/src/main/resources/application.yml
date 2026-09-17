@@ -1,6 +1,9 @@
 server:
   # Un puerto propio: el 8080 es del simulador y el 8085 de la analitica.
   port: 8089
+  # Detras de TLS (Cloudflare Tunnel o Caddy) las cabeceras X-Forwarded-* son las que dicen el
+  # esquema y el host reales. Sin esto, el navegador bloquea ws:// desde una pagina https://.
+  forward-headers-strategy: framework
 
 spring:
   application:
@@ -23,6 +26,14 @@ spring:
 
 aggora:
   schema-registry-url: http://schema-registry:8081
+  # El nombre de esta implementacion, que viaja en cada mensaje del WebSocket y en /api/metrics.
+  stack: spring
+  # Prometheus por nombre interno (nunca localhost desde el devcontainer), del que este gateway
+  # hace de proxy con un catalogo cerrado de paneles.
+  prometheus-url: http://prometheus:9090
+  ui:
+    # Allowlist de origenes del dashboard. Solo lectura (GET) y nada de "*".
+    allowed-origins: http://localhost:4200,http://localhost:8080,http://localhost:8089,http://localhost:8189
   topics:
     ticks-canonical: market.ticks.canonical
     portfolio-updates: portfolio.updates
@@ -36,6 +47,10 @@ management:
     web:
       exposure:
         include: health,prometheus
+      # La misma allowlist para los endpoints de actuator (health y prometheus).
+      cors:
+        allowed-origins: ${aggora.ui.allowed-origins}
+        allowed-methods: GET
   endpoint:
     health:
       show-details: always

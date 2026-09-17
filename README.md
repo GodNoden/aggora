@@ -193,6 +193,8 @@ CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
 docs/kafka-101.md          the Kafka concepts in plain language (21 chapters)
 docs/curso-aggora.md       the guided course: domain, Kafka, phase by phase, file by file, labs and interview questions (Spanish)
 docs/decisions.md          decision log and the deliberate deviations from the spec
+docs/dashboard.md          the dashboard contract: WebSocket snapshot, metrics catalog, CORS, the five labs and how to publish it behind TLS
+docs/CONTRACT.md           the same contract, short and copy-pasteable for the dashboard repository
 docs/schema-evolution-lab.md  the schema evolution lab manual
 docs/throughput-lab.md     the throughput stress test: method, numbers and what it uncovered
 infra/                     docker-compose, Prometheus, Grafana dashboard
@@ -233,6 +235,10 @@ the reason the project exists. The README and the whole commit history are in En
   assuming no prior knowledge.
 - **[`docs/decisions.md`](docs/decisions.md)** — why each decision was made, including the
   deliberate deviations from the spec and the mistakes that cost time.
+- **[`docs/dashboard.md`](docs/dashboard.md)** — the read-only contract for the visual dashboard:
+  the aggregated WebSocket snapshot, the closed metrics catalog, CORS, the five lab scripts and
+  how to publish it behind TLS. The short, copy-pasteable version for the dashboard repository is
+  **[`docs/CONTRACT.md`](docs/CONTRACT.md)**.
 - **[`docs/schema-evolution-lab.md`](docs/schema-evolution-lab.md)** — what can be changed in
   a contract that is already running without breaking anyone, with the verdicts the registry
   returned and the playbook for doing it in production.

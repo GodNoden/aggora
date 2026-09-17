@@ -456,7 +456,8 @@ cuando un mensaje falla repetidamente, **lo descarta** (confirma el offset y sig
 transacciones, eso es perder la orden en silencio. Aqui se configura para que relance la
 excepcion y la transaccion se deshaga, de modo que el mensaje siga pendiente. En
 produccion, el destino de un mensaje que no se puede procesar es un topic de descartes
-con su aviso (Fase 6), no el olvido.
+con su aviso (Fase 6), no el olvido. (Con el matiz de la Fase 6: ese DLT cubre lo que falla
+al **validar**, no lo que falla al **deserializar**; ver el capitulo 13.)
 
 **Y una segunda trampa, esta descubierta escribiendo el test de esa misma tabla** (y que costo
 dos ejecuciones de CI entenderla). `send()` es **asincrono**: el registro se queda en un bufer y lo
@@ -570,6 +571,29 @@ silencio": acabamos con un mensaje imposible parando su particion para siempre.
 - **El topic del DLT hay que declararlo.** Con la autocreacion apagada (Fase 2, y con
   razon), el publicador de descartes no puede crear el topic por su cuenta: intenta escribir
   y el broker le contesta que no existe. Nos paso en vivo.
+
+**Ojo, y esto se midio en vivo: el DLT cubre lo que falla al VALIDAR, no lo que falla al
+DESERIALIZAR.** El DLT que hay en Aggora lo escribe el propio consumidor cuando ya tiene un
+`Tick` en la mano y lo rechaza por contenido (`TickConsumer` / `TickNormalizer`). Un mensaje que
+no es Avro **no llega ahi**: revienta antes, en el deserializador, y ese camino no esta
+cubierto por nadie. Las consecuencias de mandar un mensaje no-Avro a `market.ticks.raw`, que se
+probaron a proposito:
+
+- El normalizer de **Spring** entra en un bucle de reintentos del fallo de deserializacion y
+  escribio **17,4 GB de log en ~6 minutos**, con la particion atascada. Hubo que pararlo, borrar
+  el log y resetear los offsets del grupo.
+- El de **Quarkus** (`failure-strategy=ignore`) no cubre tampoco ese fallo: el consumidor revoca
+  las particiones y no vuelve.
+
+El arreglo, **que NO esta implementado** (es deuda consciente y esta en `docs/decisions.md`):
+
+- Spring: envolver el deserializador con un `ErrorHandlingDeserializer` y darle al contenedor un
+  `CommonErrorHandler` con `DeadLetterPublishingRecoverer`.
+- Quarkus: un `DeserializationFailureHandler` en el canal de entrada.
+
+Regla para no volver a morderlo: **"lo que no se puede procesar acaba en el DLT" es cierto solo
+para lo que se puede leer**. Si el contrato de bytes no se respeta, el fallo ocurre antes del
+codigo y el DLT se queda ciego.
 
 **Cuanto se reintenta es una decision de negocio, no tecnica.** Para un feed de precios,
 reintentar mucho es absurdo: un tick de hace dos minutos ya no sirve, mejor descartarlo

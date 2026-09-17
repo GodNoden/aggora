@@ -1,3 +1,7 @@
+server:
+  # Detras de TLS (Cloudflare Tunnel o Caddy): las cabeceras X-Forwarded-* dicen el esquema real.
+  forward-headers-strategy: framework
+
 spring:
   application:
     name: market-data-simulator
@@ -36,6 +40,10 @@ spring:
         size: 3
 
 aggora:
+  ui:
+    # Allowlist de origenes del dashboard: el simulador tambien expone su HTTP (actuator) para que
+    # la pagina pueda leerlo desde otro origen. Solo lectura y nada de "*".
+    allowed-origins: http://localhost:4200,http://localhost:8080,http://localhost:8089,http://localhost:8189
   topics:
     ticks-raw: market.ticks.raw
     orders-incoming: orders.incoming
@@ -224,6 +232,10 @@ management:
     web:
       exposure:
         include: health,prometheus
+      # La misma allowlist para los endpoints de actuator (health y prometheus).
+      cors:
+        allowed-origins: ${aggora.ui.allowed-origins}
+        allowed-methods: GET
   endpoint:
     health:
       # Los detalles se enseñan a proposito: cuando un contenedor esta DOWN, lo primero que

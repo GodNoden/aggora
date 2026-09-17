@@ -57,6 +57,7 @@ scrape_configs:
   - job_name: aggora-apps-quarkus
     metrics_path: /q/metrics
     static_configs:
-      # 8185: la analitica de Quarkus. 8189: su gateway en vivo (8289 si corre el stack paralelo).
+      # 8185: la analitica de Quarkus. 8189: su gateway en vivo (el stack paralelo usa los MISMOS
+      # puertos, que son los que el devcontainer reenvia al host).
       - targets: ["host.docker.internal:8185"]
       - targets: ["host.docker.internal:8189"]

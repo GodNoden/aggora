@@ -2,6 +2,8 @@
 # simulador, asi que aqui se usa otro.
 server:
   port: 8085
+  # Detras de TLS (Cloudflare Tunnel o Caddy): las cabeceras X-Forwarded-* dicen el esquema real.
+  forward-headers-strategy: framework
 
 spring:
   application:
@@ -38,6 +40,9 @@ spring:
 
 aggora:
   schema-registry-url: http://schema-registry:8081
+  ui:
+    # Allowlist de origenes del dashboard para /analytics y /actuator. Solo lectura y nada de "*".
+    allowed-origins: http://localhost:4200,http://localhost:8080,http://localhost:8089,http://localhost:8189
   topics:
     ticks-canonical: market.ticks.canonical
     analytics: market.analytics
@@ -70,6 +75,10 @@ management:
     web:
       exposure:
         include: health,prometheus
+      # La misma allowlist para los endpoints de actuator (health y prometheus).
+      cors:
+        allowed-origins: ${aggora.ui.allowed-origins}
+        allowed-methods: GET
   endpoint:
     health:
       # Los detalles se enseñan a proposito: cuando un contenedor esta DOWN, lo primero que

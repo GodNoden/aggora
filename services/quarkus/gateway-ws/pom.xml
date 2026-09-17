@@ -50,6 +50,14 @@
       <artifactId>quarkus-jackson</artifactId>
     </dependency>
 
+    <!-- El endpoint HTTP del catalogo de metricas (/api/metrics). Es el mismo camino que usa la
+         analitica de Quarkus para su consulta interactiva, y trae el servidor REST que hasta
+         ahora no hacia falta (el gateway solo hablaba WebSocket). -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-rest-jackson</artifactId>
+    </dependency>
+
     <!-- Metricas y sonda: lo mismo que la version Spring (actuator), en la ruta de Quarkus. -->
     <dependency>
       <groupId>io.quarkus</groupId>

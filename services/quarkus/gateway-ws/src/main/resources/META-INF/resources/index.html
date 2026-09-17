@@ -26,7 +26,10 @@
 <body>
   <h1>Aggora — datos de mercado en vivo <span id="estado" class="ko">conectando…</span></h1>
   <div class="sub">Los eventos llegan por WebSocket desde <code>market.ticks.canonical</code>,
-    <code>portfolio.updates</code> y <code>alerts.raised</code>.</div>
+    <code>portfolio.updates</code> y <code>alerts.raised</code>.
+    Los precios van en un <b>resumen por segundo</b> (<span id="ritmo">—</span>);
+    las posiciones y las alertas llegan al momento. El catálogo de métricas, en
+    <code>/api/metrics?panel=salud</code>.</div>
 
   <div class="grid">
     <div class="box">
@@ -72,12 +75,23 @@
     ).join(''));
   }
 
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  // https:// obliga a wss://: debajo de TLS, un ws:// lo bloquea el navegador.
+  const esquema = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  const ws = new WebSocket(`${esquema}${location.host}/ws`);
   ws.onopen = () => { const e = document.getElementById('estado'); e.textContent = 'conectado'; e.className = 'ok'; };
   ws.onclose = () => { const e = document.getElementById('estado'); e.textContent = 'desconectado'; e.className = 'ko'; };
   ws.onmessage = ({ data }) => {
     const ev = JSON.parse(data);
-    if (ev.kind === 'tick') { precios.set(ev.symbol, ev); pintarPrecios(); }
+    if (ev.kind === 'snapshot') {
+      // El resumen trae el ULTIMO tick de cada simbolo, no una lista de ticks.
+      precios.clear();
+      for (const [s, t] of Object.entries(ev.symbols || {})) precios.set(s, t);
+      pintarPrecios();
+      document.getElementById('ritmo').textContent = `${ev.ticksIn} ticks/s de entrada → ${ev.ticksOut} símbolos`;
+      const e = document.getElementById('estado');
+      e.textContent = `conectado · ${ev.stack}`;
+      e.className = 'ok';
+    }
     else if (ev.kind === 'position') { cartera.set(`${ev.account}|${ev.symbol}`, ev); pintarCartera(); }
     else if (ev.kind === 'alert') {
       const caja = document.getElementById('alertas');

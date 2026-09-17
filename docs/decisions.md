@@ -1237,3 +1237,71 @@ Quarkus) ejecutándose **en local y en el CI**.
 Y la lección de método con la que se cierra: **"no funciona en mi máquina" casi nunca es del entorno
 entero. Casi siempre es una versión, un puerto o una carrera, y se averigua leyendo el log del
 contenedor que falla — o preguntándole a la librería sus propios constantes — en vez de adivinando.**
+
+## Fase 11 — El contrato del dashboard (solo lectura, y publicado detras de TLS)
+
+El dashboard es una app Angular que vive en **otro repositorio** y se publica en internet. Este
+repositorio le da el contrato: un WebSocket agregado, un catalogo cerrado de metricas y CORS de
+solo lectura. Nada de esto escribe en el sistema.
+
+| Decision | Por que | Descartado |
+|---|---|---|
+| **Agregar en el backend** (un `snapshot` por segundo, ultimo tick por simbolo) | Un mensaje por tick eran ~84/s de normal y hasta 4.000/s en el test de estres: eso funde cualquier navegador. El resumen lo baja a 1/s y la pantalla sigue viendo el ultimo precio de cada simbolo. Posiciones y alertas se siguen mandando al momento porque son pocas | mandar todo y que el navegador se defienda; o muestrear en el cliente |
+| **Catalogo cerrado de paneles**, sin PromQL libre | La pagina elige un panel de una lista; no puede pedirle a Prometheus cualquier consulta ni inventarse una que tumbe el servidor. Es la misma regla que la allowlist de CORS: el borde decide | `?query=` libre (comodo, y un agujero) |
+| **Allowlist de origenes, nada de `*`** | En cuanto se publica detras de TLS, el comodin deja leer los datos a cualquiera. Por defecto solo los puertos de desarrollo; el dominio publico se anade por propiedad | `*` "para que funcione" |
+| **BFF fino para publicar** (solo los gateways y las lecturas) | El `t4g.small` del sprint no aguanta los dos stacks enteros. Publicar el borde y dejar el pipeline dentro es la diferencia entre "se cae el dashboard" y "se cae el mercado" | publicar los 13 servicios y los contenedores de infraestructura |
+| **Proxy de Prometheus dentro del gateway** | El navegador no puede hablar con Prometheus (sin CORS y con PromQL libre); el gateway traduce y limita. Un GET sencillo: `RestClient` en Spring y el `HttpClient` del JDK en Quarkus, sin dependencia nueva | que el dashboard llame a Prometheus directo |
+| **`ScheduledExecutorService` del JDK en los dos arboles** para el resumen por segundo | Ni el planificador de Spring ni el de Quarkus (que ademas tiene un suelo de 1 s) hacen falta para un hilo que pinta una foto; y asi las dos implementaciones se leen igual | `@Scheduled` en Spring y `@Scheduled` + `quarkus-scheduler` en Quarkus |
+| **El snapshot lleva `stack`** (`spring` / `quarkus`) | Es lo que permite el modo lado a lado en el mismo panel sin adivinar de quien es cada mensaje | dos endpoints distintos |
+| **El panel `transacciones` sale vacio con `nota`** | Prometheus no publica confirmadas frente a abortadas. Es preferible un hueco explicado a un numero inventado | calcular un pseudo-numero con los tiempos de transaccion del cliente |
+
+El contrato completo, los paneles y como publicarlo estan en `docs/dashboard.md`; la version corta
+para el otro repositorio, en `docs/CONTRACT.md`.
+
+Detalle que costo un rato: en Quarkus 3.39.3 la forma clasica `quarkus.http.cors=true` ya **no**
+esta reconocida (el arranque avisa de `Unrecognized configuration key` y el CORS no se aplica).
+La buena es `quarkus.http.cors.enabled=true` + `quarkus.http.cors.origins`. Se descubrio porque
+el smoke daba el CORS en verde en el gateway de Spring y en rojo en el de Quarkus.
+
+### Fase 11: lo que se rompio al mirar (y las deudas que deja)
+
+**1. El DLT cubre fallos de VALIDACION, no de DESERIALIZACION.** El DLT de Aggora lo escribe el
+propio consumidor cuando ya tiene un `Tick` deserializado y lo rechaza por contenido. Un mensaje
+que no es Avro revienta antes, en el deserializador, y ningun DLT lo ve. Medido a proposito (un
+mensaje de basura a `market.ticks.raw`):
+
+- el normalizer de **Spring** entro en un bucle de reintentos del fallo de deserializacion y
+  escribio **17,4 GB de log en ~6 minutos**, con la particion atascada. Se recupero parandolo,
+  borrando el log y reseteando los offsets del grupo (`kafka-consumer-groups.sh --reset-offsets
+  --to-latest --execute`);
+- el de **Quarkus** (`failure-strategy=ignore`) revoco las particiones y no volvio.
+
+**El arreglo NO esta implementado** (deuda consciente, anotada aqui a proposito): Spring necesita
+un `ErrorHandlingDeserializer` envolviendo el deserializador de Avro y un `CommonErrorHandler` con
+`DeadLetterPublishingRecoverer`; Quarkus, un `DeserializationFailureHandler` en el canal de
+entrada. Mientras no este, la frase "lo que no se puede procesar acaba en el DLT" solo vale para
+lo que se puede leer. La leccion 2 del dashboard lo deja escrito y no provoca el veneno por
+defecto: `scripts/leccion-2-veneno-dlt.sh`.
+
+**2. La trampa del `.properties`: un `#` de media linea NO es un comentario.** En
+`services/quarkus/ingestion-normalizer/src/main/resources/application.properties` habia cuatro
+lineas asi:
+
+```
+%prod.mp.messaging.incoming.ticks-raw.schema.registry.url=http://schema-registry:8081  # en test lo inyecta Dev Services
+```
+
+En `.properties` el `#` solo comenta si empieza la linea, asi que el valor real era
+`http://schema-registry:8081  # en test lo inyecta Dev Services` y el jar empaquetado fallaba al
+deserializar con `java.net.MalformedURLException: Error at index 4 in: "8081  "`. Lo peor es
+cuando se ve: **solo al arrancar el jar empaquetado** (perfil `prod`); los tests y los unitarios no
+lo tocan. Estuvo escondido porque el proceso que corria usaba un jar **anterior** a la edicion, asi
+que parecia sano. Arreglado moviendo los cuatro comentarios a su propia linea. Es el ejemplo mas
+barato de "el test no es el artefacto": lo que se despliega hay que arrancarlo alguna vez.
+
+**3. Los logs locales no rotan, y eso convierte un fallo en un incidente de disco.** Los servicios
+se lanzan con `nohup ... > /tmp/<servicio>.log` y **sin rotacion**: un bucle de errores escribio
+17,4 GB. La guarda que corresponde (no implementada, anotada): rotacion en el arranque local
+(`logrotate` o un `ulimit -f` por proceso) o un tope de tamano con redireccion. En produccion lo
+resuelve el supervisor (systemd/journald o el runtime del contenedor), pero el script de arranque
+local no lo tiene.
