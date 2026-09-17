@@ -1319,7 +1319,7 @@ por módulo.
 | Fichero | Qué es y por qué |
 |---|---|
 | `services/pom.xml` | Agregador de los tres árboles (Spring, Quarkus, Lambda). **No hereda de nadie** a propósito: si heredara de Spring, su `dependencyManagement` decidiría las versiones de `kafka-clients`, Jackson o JUnit en vez del BOM de Quarkus. |
-| `services/spring/pom.xml` | Padre de los 8 módulos Spring: `spring-boot-starter-parent` 4.1.1, Java 21, Confluent 8.3.1, Avro 1.12.1, Testcontainers 1.21.3, repo de Confluent y failsafe para los `*IT`. |
+| `services/spring/pom.xml` | Padre de los 8 módulos Spring: `spring-boot-starter-parent` 4.1.1, Java 21, Confluent 8.3.1, Avro 1.12.1, Testcontainers 2.0.5 (por encima de la que gestiona Boot, con el motivo escrito en el pom), repo de Confluent y failsafe para los `*IT`. |
 | `services/quarkus/pom.xml` | Padre del árbol Quarkus: importa el **BOM 3.39.3** (que decide *todas* las versiones). Trae **BouncyCastle, Brotli, commons-compress y xz** aunque el código no los use: son obligatorios para compilar el nativo. El failsafe va en `<plugins>` y no en `<pluginManagement>`: *pluginManagement solo configura, no activa*, y por eso los `*IT` de Quarkus no se ejecutaban nunca. |
 | `services/lambda/pom.xml` | Agregador serverless. No hereda de nadie porque una Lambda no es una aplicación con bucle de consumo. |
 | `README.md` | Portada: qué es, cómo arrancarlo, mapa "concepto Kafka → dónde vive". |
@@ -1747,7 +1747,17 @@ diagnóstico → causa raíz → arreglo → lección**. Todos son reales y est�
 
 - **Síntoma.** Los `*IT` de Spring fallan con `Could not find a valid Docker environment`. El informe de failsafe dice: `UnixSocketClientProviderStrategy: failed with BadRequestException (Status 400)`, `DockerDesktopClientProviderStrategy: failed with NullPointerException (getSocketPath() is null)`.
 - **Diagnóstico.** El socket **conecta** (hay respuesta HTTP) pero devuelve **400** con la etiqueta `com.docker.desktop.address=unix:///var/run/docker-cli.sock`: dentro del devcontainer `/var/run/docker.sock` apunta al socket **del CLI**, no al del motor. No lo arreglan `DOCKER_HOST`, `TESTCONTAINERS_HOST_OVERRIDE` ni fijar `api.version`.
-- **Causa raíz.** Una particularidad de **Docker Desktop en Windows + WSL**, no del proyecto. Y hay una **corrección posterior**: el diagnóstico inicial estaba a medias. El `*IT` de **Quarkus sí se ejecuta** en el devcontainer añadiendo **una sola variable**: `TESTCONTAINERS_RYUK_DISABLED=true`. Lo que no se alcanzaba no era el motor, era **Ryuk** (el contenedor de limpieza). Medido: `Tests run: 1, Failures: 0, Errors: 0` en 38 s. El árbol de Spring sigue sin poder: su Testcontainers es más viejo y **no negocia** con el socket de Docker Desktop.
+  Y una **segunda corrección**, ya con las tres piezas en su sitio: el árbol de **Spring también
+  corre en local**. Hizo falta (1) subir su Testcontainers a la 2.0.5 —la 1.21.3 no negocia con el
+  socket de Docker Desktop—, (2) adaptar el test a la 2.x (módulos `testcontainers-*`, contenedor
+  `org.testcontainers.kafka.ConfluentKafkaContainer`), (3) poner una espera explícita al registro de
+  esquemas —antes se daba por arrancado en cuanto existía el proceso: una carrera latente— y (4)
+  apuntar el registro al listener **interno** del broker (`PLAINTEXT://kafka:9093`), porque el 9092
+  es el que el broker anuncia para el host (`localhost:<puerto mapeado>`) y desde dentro de la red de
+  contenedores no existe. Los **tres** `*IT` del proyecto corren ahora en local y en el CI: el camino
+  completo, con sus fallos y sus porqués, está en `docs/dev-environment.md` y `docs/decisions.md`, y
+  es el mejor ejemplo del curso de que un diagnóstico cómodo ("esto aquí no se puede") casi siempre
+  está a medias.
 - **Arreglo.** Los `*IT` de Spring se verifican en el CI (Docker nativo); el de Quarkus, en local y en el CI.
 - **Lección.** "No funciona Testcontainers" era falso; lo que no funciona es **un cliente concreto** contra **un socket concreto**. Y el comando que lo demuestra:
   `docker exec -u vscode -e TESTCONTAINERS_RYUK_DISABLED=true <devcontainer> bash -lc 'cd /workspaces/aggora/services && mvn verify -pl quarkus/ingestion-normalizer -am'`.
