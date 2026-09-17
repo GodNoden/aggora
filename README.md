@@ -191,6 +191,9 @@ README.md                  project front page
 SPEC.md                    the original spec (immutable)
 CONTRIBUTING.md            working rules, conventions and the phase-by-phase log
 docs/kafka-101.md          the Kafka concepts in plain language (21 chapters)
+docs/dashboard.md          the dashboard contract: panels, metrics and how to publish it
+docs/CONTRACT.md           short copy-paste contract for the dashboard repository
+docs/START-ANGULAR-CHAT.md the kickoff prompt for the Angular dashboard chat
 docs/curso-aggora.md       the guided course: domain, Kafka, phase by phase, file by file, labs and interview questions (Spanish)
 docs/decisions.md          decision log and the deliberate deviations from the spec
 docs/dashboard.md          the dashboard contract: WebSocket snapshot, metrics catalog, CORS, the five labs and how to publish it behind TLS
