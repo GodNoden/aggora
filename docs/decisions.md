@@ -1205,58 +1205,35 @@ Lección (la cuarta de la misma familia): un test que pasa en tu máquina puede 
 entorno**, no por el código. Si el test depende de Dev Services, hay que comprobar en el log que los
 Dev Services **arrancan**.
 
-### Cierre del episodio: la 2.x no se queda en el árbol de Spring
+### Cierre del episodio: los tres IT corren en local y en el CI
 
-El intento de subir el árbol de Spring a Testcontainers 2.x se revirtió. Resumen y por qué:
+El resumen de lo que pasó, en orden, porque el camino tuvo tres vueltas:
 
-- **Lo que se gana con la 2.x**: los dos `*IT` de Spring corren en el devcontainer (cosa que con la
-  1.21.3 no se puede, por el socket de Docker Desktop). Verificado en local: `ExactlyOnceKafkaIT` 1/1
-  y `OutboxPostgresIT` 2/2.
-- **Lo que se pierde**: en un runner Linux nativo, el registro de esquemas no consigue hablar con el
-  broker. Con la espera explícita puesta, el log del contenedor lo dice sin ambigüedad:
-  `Expected 1 brokers but found only 0` y `Timed out waiting for a node assignment`. El registro
-  entra por `PLAINTEXT://kafka:9092` y el broker le devuelve el listener que anuncia para el host
-  (`localhost:<puerto mapeado>`), que desde dentro del contenedor no existe.
-- **Por qué no se arregló**: no se puede reproducir en el devcontainer (Docker Desktop enruta de
-  otra manera), así que cualquier arreglo sería a ciegas y a base de ejecuciones del CI. Con la
-  1.21.3 ese IT lleva varias ejecuciones verdes: **una mejora que no se puede verificar no compensa
-  un CI rojo**.
-- **Lo que se queda del intento**: (1) la espera explícita del registro de esquemas, que era un bug
-  real del test (daba el contenedor por arrancado en cuanto existía el proceso) y beneficia a las dos
-  versiones; (2) los cuatro hallazgos escritos en `docs/dev-environment.md`; (3) el IT de Quarkus
-  habilitado, que sí corre en local y en CI.
-- **Si alguien lo retoma**: apuntar el registro al listener interno (`BROKER://kafka:9092`) en vez
-  de a `PLAINTEXT`, o montar Kafka a mano con las variables de KRaft en lugar del contenedor de
-  Confluent que trae Testcontainers.
+1. **Se descubrió que el árbol de Quarkus usa Testcontainers 2.0.5 y el de Spring 1.21.3** (lo fija
+   cada BOM). La 1.21.3 no negocia con el socket de Docker Desktop del devcontainer, así que los
+   `*IT` de Spring solo podían correr en el CI.
+2. **Intento 1: subir Spring a la 2.0.5.** En local los dos `*IT` pasaban, pero en el runner el
+   registro de esquemas no llegaba al broker (`Expected 1 brokers but found only 0`). Se revirtió:
+   una mejora que no se puede verificar en local no compensa un CI rojo.
+3. **El diagnóstico estaba a medio hacer, y el log del contenedor lo terminó.** El registro apuntaba
+   a `PLAINTEXT://kafka:9092`, que es el listener que el broker anuncia **para el host**
+   (`localhost:<puerto mapeado>`); el listener **interno** es el 9093 y se anuncia como `kafka:9093`,
+   el alias de la red. **Intento 2: `PLAINTEXT://kafka:9093`** (el prefijo sigue siendo `PLAINTEXT`
+   porque ahí va el protocolo de seguridad, no el nombre del listener). Los tres `*IT` en verde en el
+   runner.
 
-Y la lección de método, que es la que más veces ha aparecido en este proyecto: **cuando algo se
-arregla "solo en tu máquina", hay que desconfiar de la mejora, no del CI**.
+**Estado final:** los dos árboles en Testcontainers 2.0.5 y los **tres** `*IT` (dos de Spring y el de
+Quarkus) ejecutándose **en local y en el CI**.
 
-### Intento 2 (y plan B por escrito): el puerto del listener interno
+- Cómo se corre en local: `TESTCONTAINERS_RYUK_DISABLED=true` (lo único que no se alcanza desde el
+  devcontainer es Ryuk, el reaper, no el motor de Docker) y
+  `TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal`.
+- Lo que se aprendió por el camino y quedó en el repo: los módulos de la 2.x se llaman
+  `testcontainers-<modulo>`; el contenedor de Kafka cambió de paquete y tiene una clase por familia
+  de imagen; la imagen de Apache sale con código 1 porque exige todas las variables de KRaft.
+- **El plan B no hizo falta** (está documentado en `docs/dev-environment.md`): volver a 1.21.3 y
+  aceptar que esos dos tests se verificaran solo en el CI.
 
-Con el diagnóstico anterior (el registro no llegaba al broker: `Expected 1 brokers but found only 0`)
-se identificó el puerto. Leyendo la configuración del propio contenedor de Testcontainers (los
-constantes de `ConfluentKafkaContainer`), el cableado es:
-
-| Listener | Dirección anunciada | Para quién |
-|---|---|---|
-| `PLAINTEXT` (9092) | `localhost:<puerto mapeado>` | el test, desde el host |
-| `BROKER` (9093) | `kafka:9093` (el alias de la red) | los otros contenedores |
-
-El registro apuntaba a `PLAINTEXT://kafka:9092`: el puerto del **host**. Desde dentro de la red de
-contenedores esa dirección no existe, y el broker le devolvía metadatos apuntando a
-`localhost:<mapeado>`, que tampoco. De ahí el `kafka-ready` fallido. Arreglo: apuntar al listener
-interno (`PLAINTEXT://kafka:9093`; el prefijo sigue siendo `PLAINTEXT` porque ahí va el protocolo de
-seguridad, no el nombre del listener). Verificado en el devcontainer: los dos `*IT` de Spring en
-verde. La comprobación definitiva es el runner.
-
-**Plan B, si el runner vuelve a decir que no**: revertir el árbol de Spring a Testcontainers
-**1.21.3** y aceptar el reparto asimétrico —Spring verifica sus `*IT` solo en el CI; Quarkus los
-verifica en local y en el CI—. La deuda queda dicha: con la 1.21.3 esos dos tests **no se pueden
-ejecutar en el devcontainer** (su cliente no negocia con el socket de Docker Desktop). Se prefiere esa
-deuda, escrita y entendida, a un CI rojo por una mejora que no se puede verificar en local.
-
-Y la lección de método que cierra el episodio: **el "no funciona en mi máquina" casi nunca es del
-entorno entero; casi siempre es una versión, un puerto o una carrera — y se averigua leyendo el log
-del contenedor que falla, no adivinando.**
-
+Y la lección de método con la que se cierra: **"no funciona en mi máquina" casi nunca es del entorno
+entero. Casi siempre es una versión, un puerto o una carrera, y se averigua leyendo el log del
+contenedor que falla — o preguntándole a la librería sus propios constantes — en vez de adivinando.**

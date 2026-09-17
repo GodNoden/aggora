@@ -94,21 +94,28 @@ desde dentro de la red de contenedores; de ahí el `Expected 1 brokers but found
 **interno** del contenedor de Confluent es el **9093** y su dirección anunciada sí es el alias de la
 red (`kafka:9093`). El puerto del registro pasa a 9093 (el prefijo sigue siendo `PLAINTEXT` porque ahí
 va el protocolo de seguridad, no el nombre del listener). Verificado en local: los dos IT de Spring en
-verde. **La prueba de fuego es el runner**, que es donde fallaba: si vuelve a fallar, se aplica el
-plan B de abajo.
+verde. **Y verificado en el runner: los tres `*IT` en verde.** El puerto era el problema.
 
-**Plan B, documentado (si el intento 2 no pasa en el CI)**: volver el árbol de Spring a
-**Testcontainers 1.21.3** (la que gestiona Boot) y quedarse así:
+**Estado final (comprobado en local y en el CI):**
 
 | Árbol | Testcontainers | `mvn verify` en local | En el CI |
 |---|---|---|---|
-| Spring | 1.21.3 (BOM de Boot) | No (socket de Docker Desktop) | Sí, verde |
+| Spring | 2.0.5 (por encima de la que gestiona Boot, con el motivo escrito en `services/spring/pom.xml`) | Sí, con Ryuk desactivado | Sí |
 | Quarkus | 2.0.5 (BOM de Quarkus) | Sí, con Ryuk desactivado | Sí, con Dev Services |
 
-Es un reparto asimétrico y conviene decirlo en voz alta: **la deuda es que los dos `*IT` de Spring
-solo se pueden verificar en el CI**. Se acepta a cambio de no tener un CI rojo por una mejora que no
-se puede comprobar en local, y queda anotado aquí y en `docs/decisions.md` para no volver a
-tropezar con lo mismo sin saber por qué.
+Los **tres** `*IT` del proyecto se ejecutan en los dos sitios, y los dos árboles usan la misma línea de
+Testcontainers. La receta, en una línea:
+
+```bash
+docker exec -u vscode -e TESTCONTAINERS_RYUK_DISABLED=true <devcontainer> \
+  bash -lc 'cd /workspaces/aggora/services && mvn verify \
+    -pl spring/audit-log,spring/order-matching-engine,quarkus/ingestion-normalizer -am'
+```
+
+**El plan B que NO hizo falta** (queda escrito por si algún día se rompe): volver el árbol de Spring a
+1.21.3 y aceptar el reparto asimétrico, con sus `*IT` verificándose solo en el CI. Se barajó porque el
+primer intento (subir a la 2.x sin tocar el puerto del registro) dejaba el CI en rojo, y una mejora
+que no se puede verificar en local no compensa un CI roto. El intento 2 lo resolvió.
 
 **Lo que sí se quedó del intento**: la espera explícita del registro
 (`waitingFor(Wait.forHttp("/subjects")...)`), que era un bug real del test —daba el contenedor por
