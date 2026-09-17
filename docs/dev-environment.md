@@ -88,6 +88,28 @@ Probando esto en serio (al habilitar el IT de Quarkus en el CI) aparecieron tres
    que una mejora que no se puede verificar. Queda escrito arriba lo que habría que intentar
    (`BROKER://kafka:9092`, o montar Kafka a mano con las variables de KRaft).
 
+**El arreglo que se está probando (intento 2)**: el registro apuntaba a `PLAINTEXT://kafka:9092`, y
+9092 es el listener que el broker anuncia **para el host** (`localhost:<puerto mapeado>`), inalcanzable
+desde dentro de la red de contenedores; de ahí el `Expected 1 brokers but found only 0`. El listener
+**interno** del contenedor de Confluent es el **9093** y su dirección anunciada sí es el alias de la
+red (`kafka:9093`). El puerto del registro pasa a 9093 (el prefijo sigue siendo `PLAINTEXT` porque ahí
+va el protocolo de seguridad, no el nombre del listener). Verificado en local: los dos IT de Spring en
+verde. **La prueba de fuego es el runner**, que es donde fallaba: si vuelve a fallar, se aplica el
+plan B de abajo.
+
+**Plan B, documentado (si el intento 2 no pasa en el CI)**: volver el árbol de Spring a
+**Testcontainers 1.21.3** (la que gestiona Boot) y quedarse así:
+
+| Árbol | Testcontainers | `mvn verify` en local | En el CI |
+|---|---|---|---|
+| Spring | 1.21.3 (BOM de Boot) | No (socket de Docker Desktop) | Sí, verde |
+| Quarkus | 2.0.5 (BOM de Quarkus) | Sí, con Ryuk desactivado | Sí, con Dev Services |
+
+Es un reparto asimétrico y conviene decirlo en voz alta: **la deuda es que los dos `*IT` de Spring
+solo se pueden verificar en el CI**. Se acepta a cambio de no tener un CI rojo por una mejora que no
+se puede comprobar en local, y queda anotado aquí y en `docs/decisions.md` para no volver a
+tropezar con lo mismo sin saber por qué.
+
 **Lo que sí se quedó del intento**: la espera explícita del registro
 (`waitingFor(Wait.forHttp("/subjects")...)`), que era un bug real del test —daba el contenedor por
 listo en cuanto existía el proceso— y que las dos versiones se benefician.

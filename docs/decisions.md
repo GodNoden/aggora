@@ -1232,3 +1232,31 @@ El intento de subir el árbol de Spring a Testcontainers 2.x se revirtió. Resum
 Y la lección de método, que es la que más veces ha aparecido en este proyecto: **cuando algo se
 arregla "solo en tu máquina", hay que desconfiar de la mejora, no del CI**.
 
+### Intento 2 (y plan B por escrito): el puerto del listener interno
+
+Con el diagnóstico anterior (el registro no llegaba al broker: `Expected 1 brokers but found only 0`)
+se identificó el puerto. Leyendo la configuración del propio contenedor de Testcontainers (los
+constantes de `ConfluentKafkaContainer`), el cableado es:
+
+| Listener | Dirección anunciada | Para quién |
+|---|---|---|
+| `PLAINTEXT` (9092) | `localhost:<puerto mapeado>` | el test, desde el host |
+| `BROKER` (9093) | `kafka:9093` (el alias de la red) | los otros contenedores |
+
+El registro apuntaba a `PLAINTEXT://kafka:9092`: el puerto del **host**. Desde dentro de la red de
+contenedores esa dirección no existe, y el broker le devolvía metadatos apuntando a
+`localhost:<mapeado>`, que tampoco. De ahí el `kafka-ready` fallido. Arreglo: apuntar al listener
+interno (`PLAINTEXT://kafka:9093`; el prefijo sigue siendo `PLAINTEXT` porque ahí va el protocolo de
+seguridad, no el nombre del listener). Verificado en el devcontainer: los dos `*IT` de Spring en
+verde. La comprobación definitiva es el runner.
+
+**Plan B, si el runner vuelve a decir que no**: revertir el árbol de Spring a Testcontainers
+**1.21.3** y aceptar el reparto asimétrico —Spring verifica sus `*IT` solo en el CI; Quarkus los
+verifica en local y en el CI—. La deuda queda dicha: con la 1.21.3 esos dos tests **no se pueden
+ejecutar en el devcontainer** (su cliente no negocia con el socket de Docker Desktop). Se prefiere esa
+deuda, escrita y entendida, a un CI rojo por una mejora que no se puede verificar en local.
+
+Y la lección de método que cierra el episodio: **el "no funciona en mi máquina" casi nunca es del
+entorno entero; casi siempre es una versión, un puerto o una carrera — y se averigua leyendo el log
+del contenedor que falla, no adivinando.**
+

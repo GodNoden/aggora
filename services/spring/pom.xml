@@ -54,25 +54,14 @@
     <!--
       Testcontainers: para los tests de integracion (*IT). Spring Boot importa el BOM de
       Testcontainers en su dependencyManagement, pero NO gestiona los modulos, asi que aqui se fija
-      la version. Se usa la MISMA que importa Boot (1.21.3).
+      la version.
 
-      SE INTENTO subir a la 2.x (la linea que usa Quarkus) y NO ha quedado: con la 2.x el wiring
-      interno entre Kafka y el Schema Registry en un runner Linux nativo se rompe y no se puede
-      reproducir en el devcontainer (Docker Desktop enruta de otra forma). Lo que pasa exactamente,
-      con el log delante: el registro de esquemas no pasa su propio chequeo `kafka-ready`
-      ("Expected 1 brokers but found only 0", "Timed out waiting for a node assignment"), porque entra
-      por `PLAINTEXT://kafka:9092` y el broker le devuelve el listener que anuncia para el host
-      (localhost:puerto mapeado), que desde dentro del contenedor no existe. Con la 1.21.3 ese mismo
-      IT lleva varias ejecuciones en verde.
-
-      La contrapartida, dicha claro: con la 1.21.3 estos *IT NO corren en el devcontainer (su
-      estrategia de socket no negocia con Docker Desktop) y se verifican en el CI. El IT de Quarkus
-      Si corre en los dos sitios, porque ese arbol usa la 2.x. Si alguien quiere retomarlo, el
-      siguiente intento razonable es apuntar el registro al listener interno
-      (`BROKER://kafka:9092`) o montar Kafka a mano con las variables de KRaft, en vez de usar el
-      contenedor de Confluent que trae Testcontainers.
+      DESVIACION DELIBERADA de la version que gestiona Boot (1.21.3): se sube a la 2.x, la MISMA
+      linea que usa Quarkus, porque la 1.21.3 no sabe hablar con el socket de Docker Desktop del
+      devcontainer y sus *IT solo podian correr en el CI. OJO con los nombres: en la 2.x los modulos
+      se llaman testcontainers-<modulo>, no kafka ni postgresql a secas.
     -->
-    <testcontainers.version>1.21.3</testcontainers.version>
+    <testcontainers.version>2.0.5</testcontainers.version>
   </properties>
 
   <!--
@@ -84,19 +73,19 @@
   <dependencies>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>kafka</artifactId>
+      <artifactId>testcontainers-kafka</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>postgresql</artifactId>
+      <artifactId>testcontainers-postgresql</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>

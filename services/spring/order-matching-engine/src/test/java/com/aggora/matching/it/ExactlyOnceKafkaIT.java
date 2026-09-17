@@ -26,7 +26,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.KafkaContainer;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -65,7 +65,11 @@ class ExactlyOnceKafkaIT {
     private static final Network RED = Network.newNetwork();
 
     @Container
-    static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.1"))
+    // En Testcontainers 2.x el contenedor de Kafka vive en `org.testcontainers.kafka` y hay una
+    // clase por familia de imagenes: ConfluentKafkaContainer para las de Confluent (la que ya usaba
+    // este test), KafkaContainer para la de Apache. Se mantiene la de Confluent a proposito.
+    static final ConfluentKafkaContainer KAFKA =
+            new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.1"))
             .withNetwork(RED)
             .withNetworkAliases("kafka");
 
@@ -75,7 +79,14 @@ class ExactlyOnceKafkaIT {
             .withExposedPorts(8081)
             .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
             .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
-            .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9092")
+            // El puerto NO es un detalle: 9092 es el listener que el broker anuncia para el HOST
+            // (localhost:<puerto mapeado>), y por eso el registro no llegaba a el desde dentro de la
+            // red de contenedores (su chequeo kafka-ready veia "0 brokers"). El listener interno del
+            // contenedor de Confluent es el 9093, y su direccion anunciada SI es el alias de la red
+            // (kafka:9093). El prefijo sigue siendo PLAINTEXT porque ahi va el protocolo de
+            // seguridad, no el nombre del listener (el mapa del contenedor declara BROKER:PLAINTEXT).
+            // Comprobado leyendo la configuracion del propio contenedor de Testcontainers.
+            .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9093")
             .dependsOn(KAFKA)
             // Espera EXPLICITA a que el registro escuche de verdad. Antes no habia ninguna: el
             // contenedor se daba por arrancado en cuanto el proceso existia, y el registro de
