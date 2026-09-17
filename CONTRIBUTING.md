@@ -359,7 +359,9 @@
       bash -lc 'cd /workspaces/aggora/services && mvn verify -pl spring/audit-log,spring/order-matching-engine,quarkus/ingestion-normalizer -am'
     # ExactlyOnceKafkaIT 1/1 · OutboxPostgresIT 2/2 · NormalizerKafkaIT 1/1
     ```
-    Detalle (y las tres aristas de la migración a 2.x) en `docs/dev-environment.md`.
+    Detalle en `docs/dev-environment.md`: las tres aristas de la migración a 2.x (nombres de módulo,
+    paquete del contenedor de Kafka, imagen de Apache que exige las variables de KRaft), la espera
+    explícita del registro y el puerto del listener **interno** (9093, no el 9092 del host).
   - Ojo con `ExactlyOnceKafkaIT`: falló en CI dos veces y **el primer diagnóstico fue falso** ("es una
     carrera al leer"). La causa real es que `send()` es asíncrono y `abortTransaction()` descarta lo
     que el hilo emisor no ha mandado, así que el registro abortado no llegaba a existir. El test ahora
