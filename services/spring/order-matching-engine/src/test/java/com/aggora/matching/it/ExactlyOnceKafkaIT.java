@@ -29,6 +29,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
@@ -82,7 +83,16 @@ class ExactlyOnceKafkaIT {
             .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
             .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
             .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9092")
-            .dependsOn(KAFKA);
+            .dependsOn(KAFKA)
+            // Espera EXPLICITA a que el registro escuche de verdad. Antes no habia ninguna: el
+            // contenedor se daba por arrancado en cuanto el proceso existia, y el registro de
+            // Confluent tarda bastante mas (se conecta a su broker, crea el topic _schemas...). El
+            // test empezo a usarlo demasiado pronto y fallo con "Connection refused" al pedir las
+            // asociaciones. Era una carrera latente que la version vieja de Testcontainers tapaba
+            // por casualidad de tiempos y que la nueva (que arranca contenedores antes) ha
+            // destapado: el fallo no era de la version, era del test.
+            .waitingFor(Wait.forHttp("/subjects").forPort(8081).forStatusCode(200)
+                    .withStartupTimeout(Duration.ofMinutes(2)));
 
     private static String registryUrl() {
         return "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081);
