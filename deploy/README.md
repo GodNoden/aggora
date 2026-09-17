@@ -1,5 +1,11 @@
 # Deploying Aggora to AWS (Phase 10)
 
+> **Doing this as a learning sprint?** Start with [`SPRINT-AWS.md`](SPRINT-AWS.md) (Spanish): an
+> operational guide, step 0 to 10, with the budget alarm, the exact commands, the verification of
+> every piece and the teardown that leaves nothing billing. Run `bash deploy/preflight.sh` before
+> spending anything: it checks the local side (terraform, jars, TF_VARs, credentials) and tells you
+> what is missing.
+
 This is the runbook for the Phase 10 deployment: the same pipeline that runs on a laptop
 (three KRaft brokers in Docker, seven JVMs in a devcontainer) running against a **managed
 Kafka broker** on real infrastructure.

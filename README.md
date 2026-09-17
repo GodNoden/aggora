@@ -211,7 +211,7 @@ services/                  Maven aggregator: the platform in both implementation
   quarkus/                 the same eight services, ported in phase 8
     .../                   same names as above, plus the native-image recipe
   lambda/                  the stateless service as a Lambda (phase 10)
-deploy/                    runbook, Terraform, systemd units and the VM compose
+deploy/                    runbook, AWS sprint guide, preflight/teardown, Terraform, systemd units and the VM compose
 ```
 
 The eight services exist **twice** (`services/spring/*` and `services/quarkus/*`) on
